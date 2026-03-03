@@ -88,26 +88,30 @@ Add the hook to your project's `.claude/settings.json`:
 
 ### 4. Speech Input (STT)
 
-For speech-to-text input into Claude Code, you have two options:
+For speech-to-text input into Claude Code, you have three options:
 
-**Option A: VS Code Speech Extension**
+**Option A: macOS Dictation (Recommended)**
 
-```bash
-code --install-extension ms-vscode.vscode-speech
-```
+Built into macOS, works in any text field including Claude Code's chat panel.
 
-Then add to VS Code settings:
-```json
-{
-  "accessibility.voice.speechTimeout": 2000
-}
-```
+1. Go to **System Settings > Keyboard > Dictation** and enable it
+2. Press **fn fn** (fn key twice) or the **microphone key** to start dictating
+3. Speak your message, then press fn again or click Done
 
-Use `Cmd+Option+V` to start voice input. Auto-submits after 2 seconds of silence.
+No extensions needed. Works everywhere on your Mac.
 
-**Option B: [Voquill](https://github.com/nicobailey/Voquill) (Open Source)**
+**Option B: macOS Voice Control**
 
-Voquill is an open-source macOS speech input app that works system-wide. Great alternative if you want voice input outside VS Code or prefer a dedicated speech app.
+For fully hands-free operation:
+
+1. Go to **System Settings > Accessibility > Voice Control** and enable it
+2. Say "click" to focus the input, dictate your message, then say "press return"
+
+**Option C: [Voquill](https://github.com/nicobailey/Voquill) (Open Source)**
+
+Voquill is an open-source macOS speech input app that works system-wide with your local Whisper server.
+
+> **Note:** The VS Code Speech extension (`ms-vscode.vscode-speech`) does **not** work with Claude Code's chat panel, as it uses a custom UI component.
 
 ## Configuration
 

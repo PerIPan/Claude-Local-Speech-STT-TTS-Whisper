@@ -67,7 +67,8 @@ echo '       }]'
 echo '     }'
 echo '   }'
 echo ""
-echo "4. (Optional) Install VS Code Speech extension for voice input:"
-echo "   code --install-extension ms-vscode.vscode-speech"
+echo "4. Enable macOS Dictation for voice input:"
+echo "   System Settings > Keyboard > Dictation > Enable"
+echo "   Press fn fn (fn key twice) to start dictating into Claude Code"
 echo ""
 echo "5. (Optional) Test TTS:  echo 'Hello world' | ./scripts/speak.sh"
