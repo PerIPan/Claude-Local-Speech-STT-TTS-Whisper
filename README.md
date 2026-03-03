@@ -73,15 +73,22 @@ Copy `CLAUDE.md` to your project root:
 cp CLAUDE.md /path/to/your/project/
 ```
 
-Add the hook to your project's `.claude/settings.json`:
+Add the hook to your `.claude/settings.json` (global or project):
 
 ```json
 {
   "hooks": {
-    "stop": [{
-      "type": "command",
-      "command": "/path/to/Claude-Local-Speech-STT-TTS-Whisper/hooks/tts-hook.sh"
-    }]
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/path/to/Claude-Local-Speech-STT-TTS-Whisper/hooks/tts-hook.sh",
+            "timeout": 60
+          }
+        ]
+      }
+    ]
   }
 }
 ```
@@ -176,6 +183,16 @@ Here's the full technical explanation with code...
 **Very short audio (millisecond):**
 - The hook might be matching a literal `[VOICE: ...]` mention in text
 - This is handled by using `tail -1` to grab the last match
+
+**Voice input "osascript not allowed" error:**
+- The voice input script uses AppleScript to type into the active app
+- Grant **Accessibility** access: **System Settings → Privacy & Security → Accessibility**
+- Toggle on **Terminal** and/or **Visual Studio Code** (whichever runs the script)
+- This is a one-time macOS permission — required for any app to send keystrokes
+
+**Voice input picks up TTS audio (feedback loop):**
+- If the mic picks up the speaker's TTS output, use headphones or lower speaker volume
+- Or run with `--no-submit` to review before sending: `python scripts/voice-input.py --loop --no-submit`
 
 ## Credits
 

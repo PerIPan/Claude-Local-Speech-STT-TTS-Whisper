@@ -60,9 +60,12 @@ echo "3. Configure the hook in your project's .claude/settings.json:"
 echo ""
 echo '   {'
 echo '     "hooks": {'
-echo '       "stop": [{'
-echo '         "type": "command",'
-echo "         \"command\": \"$SCRIPT_DIR/hooks/tts-hook.sh\""
+echo '       "Stop": [{'
+echo '         "hooks": [{'
+echo '           "type": "command",'
+echo "           \"command\": \"$SCRIPT_DIR/hooks/tts-hook.sh\","
+echo '           "timeout": 60'
+echo '         }]'
 echo '       }]'
 echo '     }'
 echo '   }'

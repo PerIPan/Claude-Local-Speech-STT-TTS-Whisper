@@ -153,18 +153,25 @@ def type_text(text, submit=True):
     escaped = text.replace("\\", "\\\\").replace('"', '\\"')
 
     script = f'tell application "System Events" to keystroke "{escaped}"'
-    subprocess.run(["osascript", "-e", script], check=True)
+    try:
+        subprocess.run(["osascript", "-e", script], check=True)
+    except subprocess.CalledProcessError:
+        print("Error: osascript denied. Grant Accessibility access to Terminal/VS Code in System Settings → Privacy & Security → Accessibility", flush=True)
+        return
 
     if submit:
         time.sleep(0.1)
-        subprocess.run(
-            [
-                "osascript",
-                "-e",
-                'tell application "System Events" to key code 36',  # Enter key
-            ],
-            check=True,
-        )
+        try:
+            subprocess.run(
+                [
+                    "osascript",
+                    "-e",
+                    'tell application "System Events" to key code 36',  # Enter key
+                ],
+                check=True,
+            )
+        except subprocess.CalledProcessError:
+            print("Error: could not press Enter", flush=True)
 
 
 def main():
