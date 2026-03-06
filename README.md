@@ -2,82 +2,56 @@
 
 Voice mode for [Claude Code](https://claude.ai/claude-code) on Apple Silicon. Talk to Claude, hear Claude talk back — all running locally on your Mac.
 
-## How It Works
+## What It Does
 
-```
-You speak -> Whisper (STT) -> Claude Code -> [VOICE: tag] -> Kokoro (TTS) -> You hear
-```
+You use Claude Code normally. After every response, Claude's answer is automatically spoken aloud through your Mac's speakers using a local TTS model. For speech input, pair with [Voquill](https://github.com/nicobailey/Voquill) to dictate instead of type.
 
-1. **You speak** — transcribed locally by Whisper on Apple Silicon via MLX
-2. **Claude responds** — full detailed text on screen as usual
-3. **Claude adds a `[VOICE: ...]` tag** — a short conversational summary
-4. **The hook extracts it** — sends only the spoken summary to Kokoro TTS
-5. **You hear the response** — natural speech, fully async, interruptible
+Everything runs on your Mac — no cloud APIs, no data leaves your machine.
 
-## Features
+## 5-Minute Setup
 
-- 100% local — no cloud APIs, no data leaves your Mac
-- Async playback — keep working while Claude speaks
-- Interruptible — new responses cut off old audio
-- Smart summaries — Claude generates spoken summaries, not raw text dumps
-- Fallback mode — works even without the `[VOICE:]` tag (strips markdown, truncates)
-- Fast-fail — if TTS server is down, hook exits immediately (no blocking)
+### Prerequisites
 
-## Requirements
+- Mac with Apple Silicon (M1/M2/M3/M4)
+- [Claude Code](https://claude.ai/claude-code) (CLI or VS Code extension)
+- [uv](https://docs.astral.sh/uv/) (`curl -LsSf https://astral.sh/uv/install.sh | sh`)
+- [jq](https://jqlang.github.io/jq/) (`brew install jq`)
 
-- macOS with Apple Silicon (M1/M2/M3/M4)
-- [uv](https://docs.astral.sh/uv/) package manager
-- [Claude Code](https://claude.ai/claude-code) CLI or VS Code extension
-- `jq` (install via `brew install jq`)
-
-## Quick Start
+### Step 1: Install
 
 ```bash
-# Clone
 git clone https://github.com/PerIPan/Claude-Whisperer.git
 cd Claude-Whisperer
-
-# Install (creates venv, downloads models)
-chmod +x setup.sh
-./setup.sh
-
-# Start servers
-./servers/start-servers.sh
+chmod +x setup.sh && ./setup.sh
 ```
 
-## Setup
+This creates a Python venv at `~/mlx-openai-whisper` and installs everything (MLX Audio, Whisper, Kokoro TTS, spaCy).
 
-### 1. Run the setup script
-
-```bash
-./setup.sh                          # default venv: ~/mlx-openai-whisper
-./setup.sh /path/to/custom/venv     # custom location
-```
-
-This installs all MLX dependencies including Whisper, Kokoro TTS, and spaCy.
-
-**Python dependencies** (installed automatically by `setup.sh`):
-`mlx-audio`, `mlx-whisper`, `spacy` (en_core_web_sm), `setuptools`
-
-### 2. Start the servers
+### Step 2: Start the servers
 
 ```bash
 ./servers/start-servers.sh
 ```
 
-This launches:
-- **Port 8000** — Whisper STT (speech-to-text) — OpenAI-compatible API
-- **Port 8100** — Kokoro TTS (text-to-speech) — OpenAI-compatible API
+Two servers start:
+- `localhost:8000` — Whisper STT (speech-to-text)
+- `localhost:8100` — Kokoro TTS (text-to-speech)
 
-### 3. Configure Claude Code
+Keep this terminal open while using Claude.
 
-Copy `CLAUDE.md` to your project root:
+### Step 3: Tell Claude to speak
+
+Copy the `CLAUDE.md` file into any project where you want voice mode:
 
 ```bash
-cp CLAUDE.md /path/to/your/project/
+cp CLAUDE.md ~/my-project/
 ```
 
-Add the hook to your `.claude/settings.json` (global or project):
+This tells Claude to add a `[VOICE: ...]` tag to every response with a short spoken summary.
+
+### Step 4: Add the TTS hook
+
+Add this to your `~/.claude/settings.json` (or your project's `.claude/settings.json`):
 
 ```json
 {
@@ -87,7 +61,7 @@ Add the hook to your `.claude/settings.json` (global or project):
         "hooks": [
           {
             "type": "command",
-            "command": "/path/to/Claude-Whisperer/hooks/tts-hook.sh",
+            "command": "/absolute/path/to/Claude-Whisperer/hooks/tts-hook.sh",
             "timeout": 60
           }
         ]
@@ -97,121 +71,102 @@ Add the hook to your `.claude/settings.json` (global or project):
 }
 ```
 
-> Replace `/path/to/Claude-Whisperer` with the absolute path where you cloned the repo.
+Replace `/absolute/path/to/Claude-Whisperer` with where you cloned the repo (e.g. `/Users/yourname/Claude-Whisperer`).
 
-### 4. Speech Input (STT)
+**That's it!** Open Claude Code and ask it something. You'll see the response on screen and hear a spoken summary through your speakers.
 
-Choose one of the options below for getting your voice into Claude Code.
+## Speech Input with Voquill
 
-**Option A: [Voquill](https://github.com/nicobailey/Voquill) + Local Whisper (Recommended — best accuracy)**
+To talk *to* Claude (not just hear it), use [Voquill](https://github.com/nicobailey/Voquill) — a free, open-source macOS dictation app. Configure it to use your local Whisper server for much better accuracy than macOS dictation.
 
-[Voquill](https://github.com/nicobailey/Voquill) is an open-source macOS speech input app that works system-wide. It supports **OpenAI-compatible API** endpoints, which means it connects directly to your local Whisper server — giving you Voquill's polished dictation UX with Whisper large-v3-turbo's superior accuracy.
+### Voquill Setup
 
-**Why this combo is best:**
-- **Whisper large-v3-turbo via MLX** — far more accurate than macOS dictation for code, technical jargon, abbreviations, and non-English words
-- **Voquill UX** — global hotkey, system-wide input, clean text insertion into any app
-- **No cloud dependency** — everything stays on your Mac
-- **Glossary support** — add recurring technical terms to Voquill's dictionary for even better accuracy
+1. Download [Voquill](https://github.com/nicobailey/Voquill) from GitHub releases
+2. Open Voquill → **Settings** → **Transcription**
+3. Set mode: **OpenAI Compatible API**
+4. Endpoint URL: `http://localhost:8000`
+5. Model: `whisper-1`
+6. API key: any value (e.g. `sk-local`) — the local server doesn't check it
+7. Language: `en` (or your preferred language)
 
-**Setup:**
+**Test it:** Speak into Voquill. You should see `POST /v1/audio/transcriptions` in the server terminal.
 
-1. Install [Voquill](https://github.com/nicobailey/Voquill) (download from GitHub releases)
-2. Make sure the Whisper server is running (`./servers/start-servers.sh`)
-3. Open Voquill Settings → **Transcription**
-4. Set mode to **OpenAI Compatible API**
-5. Set the endpoint/base URL to your local Whisper server:
-   ```
-   http://localhost:8000/v1
-   ```
-6. Model: `whisper-1` (this is an alias — the server routes it to whatever Whisper model it loaded, default: large-v3-turbo)
-7. API key: enter any dummy value (e.g. `sk-local`) — the local server doesn't validate it
-8. Language: set to `en` (or your preferred language) for better accuracy
+### Why Voquill + Local Whisper?
 
-**Verify it works:** After configuring, speak into Voquill — it should transcribe via your local Whisper server. You should see `POST /v1/audio/transcriptions` log output in the server terminal.
+- **Way more accurate** than macOS dictation for code, technical terms, abbreviations
+- **Works system-wide** — global hotkey, types into any app including Claude Code
+- **Glossary** — add your project's API names, libraries, etc. for even better accuracy
+- **100% local** — audio never leaves your Mac
 
-**Pro tip:** Add your project-specific terms (API names, libraries, variable names) to Voquill's glossary/dictionary for best results with technical vocabulary.
+### Fallback: macOS Dictation
 
-**Option B: macOS Dictation (Zero setup fallback)**
+If you don't want to install Voquill, press **fn fn** to use built-in macOS dictation. Less accurate for technical terms, but works instantly with zero setup.
 
-Press **fn fn** (fn key twice) to dictate. Works instantly, no extra scripts needed. Text appears in the Claude Code input field — review it, then press Enter.
+## How the VOICE Tag Works
 
-> **Note:** macOS dictation is less accurate for code/technical terms compared to Whisper. The VS Code Speech extension (`ms-vscode.vscode-speech`) does **not** work with Claude Code's chat panel, as it uses a custom UI component.
+Claude adds a `[VOICE: ...]` tag at the end of every response:
+
+```
+Here's the full code with detailed explanation...
+
+[VOICE: I added the login endpoint. It validates the email and returns a JWT token.]
+```
+
+- **Screen**: You see the full detailed response
+- **Speakers**: You hear only the short spoken summary
+- The hook script extracts the tag, sends it to Kokoro TTS, and plays the audio
+- If there's no `[VOICE:]` tag, the hook falls back to stripping markdown and reading the raw text (truncated to ~600 chars)
 
 ## Configuration
 
-### TTS Hook (tts-hook.sh)
+| Variable | Default | Used by | Description |
+|----------|---------|---------|-------------|
+| `TTS_URL` | `http://localhost:8100/v1/audio/speech` | tts-hook.sh | TTS server endpoint |
+| `TTS_VOICE` | `af_heart` | tts-hook.sh | Kokoro voice name |
+| `TTS_MODEL` | `prince-canuma/Kokoro-82M` | tts-hook.sh | TTS model |
+| `STT_PORT` | `8000` | whisper_server.py | Whisper server port |
+| `WHISPER_MODEL` | `mlx-community/whisper-large-v3-turbo` | whisper_server.py | Whisper model |
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `TTS_URL` | `http://localhost:8100/v1/audio/speech` | TTS server endpoint |
-| `TTS_VOICE` | `af_heart` | Kokoro voice name |
-| `TTS_MODEL` | `prince-canuma/Kokoro-82M` | TTS model |
+## Troubleshooting
 
-### Whisper Server (whisper_server.py)
+**No audio after Claude responds:**
+1. Check TTS server is running: `curl http://localhost:8100/models`
+2. Check `jq` is installed: `which jq`
+3. Test TTS directly: `echo "hello" | ./scripts/speak.sh`
+4. Check the hook path in `settings.json` is correct and absolute
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `STT_PORT` | `8000` | Whisper server port |
-| `WHISPER_MODEL` | `mlx-community/whisper-large-v3-turbo` | Whisper model |
+**Voquill not transcribing:**
+1. Check Whisper server is running: `curl http://localhost:8000/models`
+2. Verify Voquill mode is **OpenAI Compatible API**
+3. Verify endpoint is `http://localhost:8000`
+4. Model should be `whisper-1`
+5. API key can be any non-empty string
+
+**422 error from TTS:**
+- Make sure `model` field is included in requests
+- Run `./setup.sh` again to reinstall spaCy model
 
 ## File Structure
 
 ```
 Claude-Whisperer/
-├── CLAUDE.md                  # Voice tag instructions (copy to your project)
-├── setup.sh                   # One-click installer
+├── CLAUDE.md              # Copy to your project (tells Claude to add VOICE tags)
+├── setup.sh               # One-click installer
 ├── hooks/
-│   └── tts-hook.sh           # Claude Code stop hook (async TTS)
+│   └── tts-hook.sh       # Claude Code hook — speaks responses via TTS
 ├── servers/
-│   ├── whisper_server.py     # OpenAI-compatible Whisper STT server
-│   └── start-servers.sh      # Launch STT + TTS servers
+│   ├── whisper_server.py # Whisper STT server (OpenAI-compatible)
+│   └── start-servers.sh  # Launches both servers
 └── scripts/
-    └── speak.sh              # Standalone TTS utility
+    └── speak.sh          # Standalone TTS utility (pipe text to hear it)
 ```
-
-## How the VOICE Tag Works
-
-Claude includes a `[VOICE: ...]` tag at the end of every response:
-
-```
-Here's the full technical explanation with code...
-
-[VOICE: I fixed the authentication bug. It was a missing token refresh in the middleware.]
-```
-
-- You **see** the full response on screen
-- You **hear** only the conversational summary
-- No extra LLM needed — Claude generates the summary itself
-
-## Troubleshooting
-
-**No audio output:**
-- Check TTS server is running: `curl http://localhost:8100/models`
-- Check `jq` is installed: `which jq`
-- Test manually: `echo "hello" | ./scripts/speak.sh`
-
-**422 error from TTS:**
-- Make sure `model` field is included in requests
-- Install spaCy model: see setup.sh
-
-**Very short audio (millisecond):**
-- The hook might be matching a literal `[VOICE: ...]` mention in text
-- This is handled by using `tail -1` to grab the last match
-
-**Voquill not transcribing via local Whisper:**
-- Check the Whisper server is running: `curl http://localhost:8000/v1/models`
-- Verify Voquill's transcription mode is set to **OpenAI Compatible API**
-- Verify endpoint is `http://localhost:8000/v1`
-- Model should be `whisper-1`
-- API key can be any non-empty string (e.g. `sk-local`)
 
 ## Credits
 
 - [MLX Audio](https://github.com/Blaizzy/mlx-audio) — TTS and STT on Apple Silicon
-- [MLX Whisper](https://github.com/ml-explore/mlx-examples) — Whisper on MLX
 - [Kokoro](https://huggingface.co/prince-canuma/Kokoro-82M) — TTS model
-- [Claude Code](https://claude.ai/claude-code) — Anthropic's CLI for Claude
-- [Voquill](https://github.com/nicobailey/Voquill) — Open source speech input for macOS
+- [Claude Code](https://claude.ai/claude-code) — Anthropic's CLI
+- [Voquill](https://github.com/nicobailey/Voquill) — Open source dictation for macOS
 
 ## License
 
