@@ -19,15 +19,9 @@ You speak -> Whisper (STT) -> Claude Code -> [VOICE: tag] -> Kokoro (TTS) -> You
 - 100% local — no cloud APIs, no data leaves your Mac
 - Async playback — keep working while Claude speaks
 - Interruptible — new responses cut off old audio
-- Barge-in — press SPACE to interrupt TTS instantly
 - Smart summaries — Claude generates spoken summaries, not raw text dumps
 - Fallback mode — works even without the `[VOICE:]` tag (strips markdown, truncates)
-- Auto mic pause — mic stops during TTS playback, resumes after (no feedback loops)
-- Noise calibration — threshold adapts to your room at startup
-- Click filtering — ignores keyboard clicks, only triggers on sustained speech
-- Voice triggers — say "submit" to press Enter hands-free
-- App targeting — only types into Terminal, VS Code, iTerm2, Warp
-- Fast-fail — if TTS server is down, mic resumes immediately (no 30s block)
+- Fast-fail — if TTS server is down, hook exits immediately (no blocking)
 
 ## Requirements
 
@@ -63,7 +57,7 @@ chmod +x setup.sh
 This installs all MLX dependencies including Whisper, Kokoro TTS, and spaCy.
 
 **Python dependencies** (installed automatically by `setup.sh`):
-`mlx-audio`, `mlx-whisper`, `sounddevice`, `numpy`, `requests`, `soundfile`, `spacy` (en_core_web_sm), `setuptools`
+`mlx-audio`, `mlx-whisper`, `spacy` (en_core_web_sm), `setuptools`
 
 ### 2. Start the servers
 
@@ -107,7 +101,7 @@ Add the hook to your `.claude/settings.json` (global or project):
 
 ### 4. Speech Input (STT)
 
-Choose one of the three options below for getting your voice into Claude Code.
+Choose one of the options below for getting your voice into Claude Code.
 
 **Option A: [Voquill](https://github.com/nicobailey/Voquill) + Local Whisper (Recommended — best accuracy)**
 
@@ -137,68 +131,11 @@ Choose one of the three options below for getting your voice into Claude Code.
 
 **Pro tip:** Add your project-specific terms (API names, libraries, variable names) to Voquill's glossary/dictionary for best results with technical vocabulary.
 
-**Option B: Whisper Voice Input Script (Hands-free, auto-submit)**
-
-Uses your local Whisper server directly. Best for fully hands-free operation — auto-detects speech, transcribes, types into VS Code, and can auto-submit. No hotkey needed. Includes barge-in support (see below).
-
-```bash
-# Start voice input (keeps listening, types text into VS Code)
-./scripts/start-input-voice-whisper.sh
-
-# Or run directly with options:
-python scripts/voice-input.py --loop                    # continuous listening
-python scripts/voice-input.py --loop --submit           # always auto-press Enter
-python scripts/voice-input.py --loop --silence 2.5      # adjust silence detection
-python scripts/voice-input.py --loop --target Terminal   # target a different app
-python scripts/voice-input.py --loop --hold              # hold-to-talk mode (Enter to start/stop)
-```
-
-Auto-pauses mic during TTS playback (no feedback loops), calibrates to room noise at startup. See [Voice Commands](#voice-commands) and [Barge-in](#barge-in) below.
-
-> Requires Accessibility permission (System Settings → Privacy & Security → Accessibility). One-time setup.
-> Only types into allowed apps (Terminal, VS Code, iTerm2, Warp) — won't send text to wrong windows.
-
-**Option C: macOS Dictation (Zero setup fallback)**
+**Option B: macOS Dictation (Zero setup fallback)**
 
 Press **fn fn** (fn key twice) to dictate. Works instantly, no extra scripts needed. Text appears in the Claude Code input field — review it, then press Enter.
 
 > **Note:** macOS dictation is less accurate for code/technical terms compared to Whisper. The VS Code Speech extension (`ms-vscode.vscode-speech`) does **not** work with Claude Code's chat panel, as it uses a custom UI component.
-
-## Barge-in
-
-When using the voice input script (Option B), you can interrupt Claude's TTS playback by pressing **SPACE** in the voice-input terminal — no need to wait for it to finish.
-
-**What happens:**
-1. TTS audio stops immediately (afplay is killed)
-2. Terminal bell sounds as confirmation
-3. Mic resumes with a short 0.5s cooldown (vs. normal 1.5s)
-4. You can start speaking your next request right away
-
-> **Note:** Spacebar barge-in is not available in `--hold` mode (conflicts with Enter-based recording).
-
-## Voice Commands
-
-When using the Whisper voice input script (Option B), you can say these trigger words **at the end of your sentence** to auto-press Enter and submit to Claude:
-
-| Voice Command | Example |
-|---------------|---------|
-| **"submit"** | "Fix the login bug, submit" |
-| **"send"** | "Add error handling to the API, send" |
-| **"send it"** | "Refactor this function, send it" |
-| **"enter"** | "Run the tests, enter" |
-| **"go ahead"** | "Deploy to staging, go ahead" |
-
-The trigger word is stripped from the text before typing — Claude only sees your actual request. Trailing punctuation is also handled ("submit." works the same as "submit").
-
-**Submit-only mode:** Say just the trigger word by itself (e.g. just "submit") to press Enter without typing anything — useful for submitting text you've already typed or reviewed.
-
-**Always-submit mode:** Use `--submit` flag to auto-press Enter after every transcription without needing a trigger word:
-
-```bash
-python scripts/voice-input.py --loop --submit
-```
-
-> **Note:** Voice commands only work with Option B (Whisper voice input script). With Voquill (Option A) or macOS Dictation (Option C), review your text on screen and press Enter manually.
 
 ## Configuration
 
@@ -217,13 +154,6 @@ python scripts/voice-input.py --loop --submit
 | `STT_PORT` | `8000` | Whisper server port |
 | `WHISPER_MODEL` | `mlx-community/whisper-large-v3-turbo` | Whisper model |
 
-### Voice Input (voice-input.py)
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `STT_URL` | `http://localhost:8000/v1/audio/transcriptions` | Whisper STT endpoint |
-| `VOICE_TARGET` | `Code` | Target app for typing (e.g. `Terminal`, `iTerm2`) |
-
 ## File Structure
 
 ```
@@ -236,9 +166,7 @@ Claude-Whisperer/
 │   ├── whisper_server.py     # OpenAI-compatible Whisper STT server
 │   └── start-servers.sh      # Launch STT + TTS servers
 └── scripts/
-    ├── speak.sh                       # Standalone TTS utility
-    ├── start-input-voice-whisper.sh   # Start voice input (run in separate terminal)
-    └── voice-input.py                 # Whisper-powered voice input bridge
+    └── speak.sh              # Standalone TTS utility
 ```
 
 ## How the VOICE Tag Works
@@ -276,21 +204,6 @@ Here's the full technical explanation with code...
 - Verify endpoint is `http://localhost:8000/v1`
 - Model should be `whisper-1`
 - API key can be any non-empty string (e.g. `sk-local`)
-
-**Voice input "osascript not allowed" error:**
-- The voice input script uses AppleScript to type into the active app
-- Grant **Accessibility** access: **System Settings → Privacy & Security → Accessibility**
-- Toggle on **Terminal** and/or **Visual Studio Code** (whichever runs the script)
-- This is a one-time macOS permission — required for any app to send keystrokes
-
-**Voice input picks up TTS audio (feedback loop):**
-- Auto-pause is built in — the mic automatically pauses while TTS is playing
-- Use barge-in (press SPACE) to interrupt TTS and resume mic immediately
-- Default is type-only (no Enter) — review text before pressing Enter yourself
-
-**Terminal stuck after crash (no echo, weird input):**
-- If voice-input.py crashes or is killed with `kill -9`, the terminal may be in cbreak mode
-- Run `reset` or `stty sane` to restore normal terminal behavior
 
 ## Credits
 
