@@ -14,11 +14,14 @@ import argparse
 import io
 import os
 import re
+import select
 import subprocess
 import sys
 import tempfile
+import termios
 import threading
 import time
+import tty
 
 import numpy as np
 import requests
@@ -33,6 +36,143 @@ SILENCE_DURATION = 3.0  # seconds of silence before stop recording
 NOISE_MULTIPLIER = 4.0  # threshold = noise_floor × this
 MIN_THRESHOLD = 0.01  # absolute minimum — above keyboard typing noise (~0.007)
 TTS_WAIT_TIMEOUT = 120  # max seconds to wait for TTS before resuming mic
+PIDFILE = "/tmp/tts_hook.pid"
+VOICE_BARGE_IN_MULTIPLIER = 8.0  # voice barge-in threshold = noise_floor × this (higher than speech detection)
+VOICE_BARGE_IN_CHUNKS = 3  # consecutive loud chunks (~300ms) to confirm voice barge-in
+
+# Global flag to signal barge-in from the keyboard listener thread
+_barge_in_event = threading.Event()
+
+
+_last_barge_in = 0.0  # monotonic timestamp of last barge-in (debounce)
+BARGE_IN_DEBOUNCE = 0.5  # ignore repeated barge-in within this window
+
+
+def kill_tts():
+    """Kill the running TTS playback and clean up lockfile."""
+    # Kill afplay directly first — avoids orphan race where pkill -P misses
+    # reparented children after the subshell is killed
+    subprocess.run(["killall", "afplay"], capture_output=True)
+    if os.path.exists(PIDFILE):
+        try:
+            with open(PIDFILE) as f:
+                pid = int(f.read().strip())
+            if pid > 0:
+                # Kill entire process group so children (curl, afplay) also die
+                try:
+                    os.killpg(os.getpgid(pid), 9)
+                except (ProcessLookupError, PermissionError):
+                    # Fallback: kill just the PID
+                    try:
+                        os.kill(pid, 9)
+                    except ProcessLookupError:
+                        pass
+        except (ValueError, ProcessLookupError, FileNotFoundError):
+            pass
+        try:
+            os.remove(PIDFILE)
+        except FileNotFoundError:
+            pass
+    # Verify afplay is actually dead, retry if not
+    time.sleep(0.05)
+    subprocess.run(["killall", "afplay"], capture_output=True)
+    # Clean up orphaned temp WAV files from killed TTS
+    for f in os.listdir("/tmp"):
+        if f.startswith("tts_") and f.endswith(".wav"):
+            try:
+                os.remove(os.path.join("/tmp", f))
+            except OSError:
+                pass
+    if os.path.exists(TTS_LOCKFILE):
+        try:
+            os.remove(TTS_LOCKFILE)
+        except FileNotFoundError:
+            pass
+
+
+_original_term_settings = None
+
+
+def _do_barge_in(source="space"):
+    """Execute barge-in: kill TTS, set event, provide feedback."""
+    global _last_barge_in
+    now = time.monotonic()
+    if now - _last_barge_in < BARGE_IN_DEBOUNCE:
+        return  # debounce
+    _last_barge_in = now
+    print(f"\r(barge-in [{source}] — stopping TTS)\a", flush=True)  # \a = terminal bell
+    kill_tts()
+    _barge_in_event.set()
+
+
+def _keypress_listener():
+    """Background thread: read raw keypresses, trigger barge-in on space."""
+    fd = sys.stdin.fileno()
+    try:
+        tty.setcbreak(fd)  # cbreak mode: char-at-a-time but keeps echo/signals
+        while True:
+            if select.select([sys.stdin], [], [], 0.2)[0]:
+                ch = sys.stdin.read(1)
+                if ch == " " and os.path.exists(TTS_LOCKFILE):
+                    _do_barge_in("space")
+                elif ch == "\x03":  # Ctrl+C
+                    break
+    except Exception:
+        pass
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, _original_term_settings)
+
+
+def _voice_barge_in_listener():
+    """Background thread: sample mic energy during TTS, auto-barge-in on voice."""
+    chunk_size = int(SAMPLE_RATE * 0.1)  # 100ms chunks
+    consecutive_loud = 0
+
+    while True:
+        try:
+            # Only listen when TTS is playing
+            if not os.path.exists(TTS_LOCKFILE):
+                consecutive_loud = 0
+                time.sleep(0.2)
+                continue
+
+            # Open a short mic stream to sample energy
+            stream = sd.InputStream(
+                samplerate=SAMPLE_RATE, channels=1, dtype="float32", blocksize=chunk_size,
+            )
+            stream.start()
+            try:
+                while os.path.exists(TTS_LOCKFILE):
+                    if _barge_in_event.is_set():
+                        break
+                    data, _ = stream.read(chunk_size)
+                    energy = np.sqrt(np.mean(data**2))
+                    voice_threshold = max(
+                        (SILENCE_THRESHOLD or MIN_THRESHOLD) * (VOICE_BARGE_IN_MULTIPLIER / NOISE_MULTIPLIER),
+                        MIN_THRESHOLD * 2,
+                    )
+                    if energy > voice_threshold:
+                        consecutive_loud += 1
+                        if consecutive_loud >= VOICE_BARGE_IN_CHUNKS:
+                            _do_barge_in("voice")
+                            consecutive_loud = 0
+                            break
+                    else:
+                        consecutive_loud = 0
+            finally:
+                stream.stop()
+                stream.close()
+        except Exception:
+            time.sleep(0.5)
+
+
+def _restore_terminal():
+    """Restore terminal settings on exit."""
+    if _original_term_settings is not None:
+        try:
+            termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, _original_term_settings)
+        except Exception:
+            pass
 
 
 def calibrate_noise(duration=1.0):
@@ -315,6 +455,7 @@ def main():
     print(f"Server: {STT_URL}")
     print(f"Target: {args.target}")
     print(f"Mode: {'hold-to-talk' if args.hold else 'auto-silence'}")
+    print("Barge-in: press SPACE or just start speaking to interrupt TTS")
 
     # Calibrate to room noise (typing floor is hardcoded in MIN_THRESHOLD)
     global SILENCE_THRESHOLD
@@ -324,19 +465,39 @@ def main():
     print(f"noise={noise_level:.4f}, threshold={SILENCE_THRESHOLD:.4f}")
     print("---")
 
+    # Start barge-in listeners
+    # Keypress listener (not in hold mode — conflicts with input())
+    if not args.hold:
+        import atexit
+        global _original_term_settings
+        _original_term_settings = termios.tcgetattr(sys.stdin.fileno())
+        atexit.register(_restore_terminal)
+        barge_thread = threading.Thread(target=_keypress_listener, daemon=True)
+        barge_thread.start()
+    # Voice-onset barge-in (works in all modes)
+    voice_barge_thread = threading.Thread(target=_voice_barge_in_listener, daemon=True)
+    voice_barge_thread.start()
+
     while True:
         try:
+            _barge_in_event.clear()
+
             # Wait while TTS is playing to avoid feedback loop
             if os.path.exists(TTS_LOCKFILE):
-                waited = 0
-                while os.path.exists(TTS_LOCKFILE) and waited < TTS_WAIT_TIMEOUT:
+                deadline = time.monotonic() + TTS_WAIT_TIMEOUT
+                while os.path.exists(TTS_LOCKFILE) and time.monotonic() < deadline:
+                    if _barge_in_event.is_set():
+                        break
                     time.sleep(0.2)
-                    waited += 0.2
-                if waited >= TTS_WAIT_TIMEOUT:
+                if time.monotonic() >= deadline:
                     print("(TTS lockfile stale, removing)", flush=True)
-                    os.remove(TTS_LOCKFILE)
+                    try:
+                        os.remove(TTS_LOCKFILE)
+                    except FileNotFoundError:
+                        pass
                 # Cooldown: let room echo/reverb die before recording
-                time.sleep(1.5)
+                # (shorter after barge-in since user wants to speak now)
+                time.sleep(0.5 if _barge_in_event.is_set() else 1.5)
                 continue
 
             if args.hold:
@@ -372,23 +533,27 @@ def main():
                 time.sleep(1.0)
                 # After submit, wait for ALL TTS activity to settle
                 if submit:
-                    print("(mic off — waiting for TTS)", flush=True)
+                    print("(mic off — waiting for TTS, press SPACE to interrupt)", flush=True)
                     time.sleep(2)  # wait for Claude to respond and hook to fire
                     # Keep waiting while TTS is active, with timeout
-                    waited = 0
-                    while waited < TTS_WAIT_TIMEOUT:
-                        while os.path.exists(TTS_LOCKFILE) and waited < TTS_WAIT_TIMEOUT:
+                    deadline = time.monotonic() + TTS_WAIT_TIMEOUT
+                    while time.monotonic() < deadline:
+                        if _barge_in_event.is_set():
+                            break
+                        while os.path.exists(TTS_LOCKFILE) and time.monotonic() < deadline:
+                            if _barge_in_event.is_set():
+                                break
                             time.sleep(0.2)
-                            waited += 0.2
+                        if _barge_in_event.is_set():
+                            break
                         # Wait 2s to see if another TTS starts
                         time.sleep(2)
-                        waited += 2
                         if not os.path.exists(TTS_LOCKFILE):
                             break  # no new TTS, safe to resume
-                    if waited >= TTS_WAIT_TIMEOUT:
+                    if time.monotonic() >= deadline:
                         print("(TTS wait timed out, resuming)", flush=True)
                         if os.path.exists(TTS_LOCKFILE):
-                            os.remove(TTS_LOCKFILE)
+                            kill_tts()
                     print("(mic on)", flush=True)
             else:
                 print("(no speech detected)")

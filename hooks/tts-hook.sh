@@ -7,10 +7,9 @@
 PIDFILE="/tmp/tts_hook.pid"
 LOCKFILE="/tmp/tts_playing.lock"
 
-# Kill any previous TTS playback (check process name before killing)
+# Kill any previous TTS playback (check process is alive before killing)
 if [ -f "$PIDFILE" ]; then
   OLD_PID=$(cat "$PIDFILE")
-  # Only kill if the PID is still our background subshell
   if kill -0 "$OLD_PID" 2>/dev/null; then
     kill "$OLD_PID" 2>/dev/null
     pkill -P "$OLD_PID" 2>/dev/null
@@ -60,9 +59,16 @@ fi
 # Lock AFTER validation — only when we know we'll play audio
 touch "$LOCKFILE"
 
+# Fast-fail: check if TTS server is reachable (2s timeout)
+# Prevents 30s+ mic block when server is down
+TTS_URL="${TTS_URL:-http://localhost:8100/v1/audio/speech}"
+if ! curl -s --max-time 2 "${TTS_URL%/audio/speech}/models" > /dev/null 2>&1; then
+  rm -f "$LOCKFILE"
+  exit 0
+fi
+
 # Run entire TTS pipeline in background (non-blocking)
 (
-  TTS_URL="${TTS_URL:-http://localhost:8100/v1/audio/speech}"
   VOICE="${TTS_VOICE:-af_heart}"
   MODEL="${TTS_MODEL:-prince-canuma/Kokoro-82M}"
   TMPFILE=$(mktemp /tmp/tts_XXXXXX.wav)
