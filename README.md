@@ -10,7 +10,7 @@ Everything runs on your Mac — no cloud APIs, no data leaves your machine.
 
 ## Quick Install (DMG)
 
-Download `ClaudeWhisperer-1.0.0.dmg` from [Releases](https://github.com/PerIPan/Claude-Whisperer/releases), drag to Applications, and launch.
+[**Download ClaudeWhisperer-1.0.0.dmg**](https://github.com/PerIPan/Claude-Whisperer/releases/download/v1.0.0/ClaudeWhisperer-1.0.0.dmg) — drag to Applications and launch.
 
 On first launch, the app:
 - Creates a Python environment with all dependencies

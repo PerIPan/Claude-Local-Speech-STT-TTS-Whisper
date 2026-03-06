@@ -62,6 +62,7 @@ class ServerManager: ObservableObject {
         let process = Process()
         process.executableURL = Paths.python
         process.arguments = [Paths.whisperServer.path]
+        process.currentDirectoryURL = Paths.appSupport
         process.environment = makeEnv()
 
         let logFile = FileHandle.forWritingOrCreate(at: Paths.sttLog)
@@ -96,6 +97,7 @@ class ServerManager: ObservableObject {
         let process = Process()
         process.executableURL = Paths.python
         process.arguments = ["-m", "mlx_audio.server", "--host", "127.0.0.1", "--port", "8100"]
+        process.currentDirectoryURL = Paths.appSupport
         process.environment = makeEnv()
 
         let logFile = FileHandle.forWritingOrCreate(at: Paths.ttsLog)
