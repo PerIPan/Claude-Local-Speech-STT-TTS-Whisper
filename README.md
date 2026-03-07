@@ -58,9 +58,11 @@ Enable **Auto-Submit** to submit messages by voice. Say one of these trigger wor
 
 Example: *"fix the login bug, submit"* → types "fix the login bug" and presses Cmd+Enter.
 
+**Barge-in:** When Auto-Submit triggers, any currently playing TTS audio is automatically interrupted so Claude can start working on your new request immediately.
+
 #### Auto-Focus
 
-Enable **Auto-Focus** to automatically bring a specific app to the front when you finish speaking. Pick from the dropdown (VS Code, Cursor, Windsurf, Terminal, iTerm2, Warp, Alacritty) or select **Custom** to type any app name.
+Enable **Auto-Focus** to automatically bring a specific app to the front when you finish speaking. Pick from the dropdown (VS Code, Code Insiders, Cursor, Windsurf, Terminal, iTerm2, Warp, Alacritty, Ghostty) or select **Custom** to type any app name.
 
 This is useful when you're speaking into Voquill from another window — the transcribed text will be typed into the focused target app.
 
@@ -201,7 +203,7 @@ chmod +x build-dmg.sh
 ./build-dmg.sh
 ```
 
-Requires Xcode Command Line Tools. Produces `Claude Whisperer.app` and `ClaudeWhisperer-1.0.0.dmg` in `app/.build/`.
+Requires Xcode Command Line Tools. Produces `Claude Whisperer.app` and `ClaudeWhisperer-1.1.0.dmg` in `app/.build/`.
 
 ## File Structure
 

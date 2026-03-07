@@ -4,8 +4,11 @@
 # Fully async: TTS generation + playback runs in background
 # New responses interrupt previous playback
 
-PIDFILE="/tmp/tts_hook.pid"
-LOCKFILE="/tmp/tts_playing.lock"
+APP_SUPPORT="$HOME/Library/Application Support/ClaudeWhisperer"
+PIDFILE="$APP_SUPPORT/tts_hook.pid"
+LOCKFILE="$APP_SUPPORT/tts_playing.lock"
+TTS_TMPDIR="${TMPDIR:-/tmp}/claude-tts-$(id -u)"
+mkdir -p "$TTS_TMPDIR"
 
 # Find jq: system PATH first, then bundled in app
 if ! command -v jq &>/dev/null; then
@@ -18,15 +21,19 @@ if ! command -v jq &>/dev/null; then
   fi
 fi
 
-# Kill any previous TTS playback (check process is alive before killing)
-if [ -f "$PIDFILE" ]; then
-  OLD_PID=$(cat "$PIDFILE")
-  if kill -0 "$OLD_PID" 2>/dev/null; then
-    kill "$OLD_PID" 2>/dev/null
-    pkill -P "$OLD_PID" 2>/dev/null
+# Kill any previous TTS playback (validate PID before killing)
+if [ -f "$PIDFILE" ] && [ ! -L "$PIDFILE" ]; then
+  OLD_PID=$(cat "$PIDFILE" 2>/dev/null)
+  if [[ "$OLD_PID" =~ ^[0-9]+$ ]] && kill -0 "$OLD_PID" 2>/dev/null; then
+    # Verify it's our process before killing
+    OLD_COMM=$(ps -p "$OLD_PID" -o comm= 2>/dev/null)
+    if [[ "$OLD_COMM" == *"bash"* ]] || [[ "$OLD_COMM" == *"afplay"* ]]; then
+      kill "$OLD_PID" 2>/dev/null
+      pkill -P "$OLD_PID" 2>/dev/null
+    fi
   fi
-  # Clean up orphaned temp files from previous runs
-  find /tmp -name "tts_*.wav" -mmin +1 -delete 2>/dev/null
+  # Clean up orphaned temp files from previous runs (scoped to our dir)
+  find "$TTS_TMPDIR" -name "tts_*.wav" -mmin +1 -delete 2>/dev/null
   rm -f "$PIDFILE"
 fi
 
@@ -73,6 +80,15 @@ touch "$LOCKFILE"
 # Fast-fail: check if TTS server is reachable (2s timeout)
 # Prevents 30s+ mic block when server is down
 TTS_URL="${TTS_URL:-http://localhost:8100/v1/audio/speech}"
+# Validate TTS_URL points to localhost
+case "$TTS_URL" in
+  http://localhost:*|http://127.0.0.1:*) ;;
+  *)
+    echo "WARNING: TTS_URL points to non-local host, using default" >&2
+    TTS_URL="http://localhost:8100/v1/audio/speech"
+    ;;
+esac
+
 if ! curl -s --max-time 2 "${TTS_URL%/audio/speech}/models" > /dev/null 2>&1; then
   rm -f "$LOCKFILE"
   exit 0
@@ -82,7 +98,7 @@ fi
 (
   VOICE="${TTS_VOICE:-af_heart}"
   MODEL="${TTS_MODEL:-prince-canuma/Kokoro-82M}"
-  TMPFILE=$(mktemp /tmp/tts_XXXXXX.wav)
+  TMPFILE=$(mktemp "$TTS_TMPDIR/tts_XXXXXX.wav")
 
   # Retry TTS up to 3 times
   for attempt in 1 2 3; do

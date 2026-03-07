@@ -24,7 +24,7 @@ python "$SCRIPT_DIR/whisper_server.py" &
 STT_PID=$!
 
 echo "Starting TTS on http://localhost:$TTS_PORT"
-python -m mlx_audio.server --host 0.0.0.0 --port "$TTS_PORT" &
+python -m mlx_audio.server --host 127.0.0.1 --port "$TTS_PORT" &
 TTS_PID=$!
 
 # Wait for servers to be ready
@@ -57,7 +57,7 @@ echo "Press Ctrl+C to stop servers."
 cleanup() {
   echo "Shutting down..."
   kill "$STT_PID" "$TTS_PID" 2>/dev/null
-  rm -f /tmp/tts_playing.lock /tmp/tts_hook.pid
+  rm -f "$HOME/Library/Application Support/ClaudeWhisperer/tts_playing.lock" "$HOME/Library/Application Support/ClaudeWhisperer/tts_hook.pid"
   wait 2>/dev/null
   echo "Done."
   exit 0

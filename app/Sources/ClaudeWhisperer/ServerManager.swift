@@ -18,6 +18,9 @@ class ServerManager: ObservableObject {
     private var ttsProcess: Process?
     private var healthCheckTimer: Timer?
     private var pendingRestart: DispatchWorkItem?
+    private var pendingInitialCheck: DispatchWorkItem?
+    private var stoppingSTT = false
+    private var stoppingTTS = false
 
     var isRunning: Bool {
         sttStatus == .running && ttsStatus == .running
@@ -52,8 +55,12 @@ class ServerManager: ObservableObject {
 
         healthCheckTimer?.invalidate()
         healthCheckTimer = nil
+        pendingInitialCheck?.cancel()
+        pendingInitialCheck = nil
 
         // Non-blocking stop (BUG-02)
+        stoppingSTT = true
+        stoppingTTS = true
         stopProcess(&sttProcess, pidFile: Paths.sttPidFile)
         stopProcess(&ttsProcess, pidFile: Paths.ttsPidFile)
 
@@ -93,15 +100,18 @@ class ServerManager: ObservableObject {
         process.standardOutput = logFile
         process.standardError = logFile
 
-        process.terminationHandler = { [weak self] proc in
+        process.terminationHandler = { [weak self] _ in
             DispatchQueue.main.async {
-                if self?.sttProcess === proc {
-                    self?.sttStatus = .error
+                guard let self else { return }
+                if self.stoppingSTT {
+                    self.stoppingSTT = false
+                } else {
+                    self.sttStatus = .error
                 }
             }
         }
 
-        // Assign before run so termination handler can match (BUG-09)
+        stoppingSTT = false
         sttProcess = process
 
         do {
@@ -131,15 +141,18 @@ class ServerManager: ObservableObject {
         process.standardOutput = logFile
         process.standardError = logFile
 
-        process.terminationHandler = { [weak self] proc in
+        process.terminationHandler = { [weak self] _ in
             DispatchQueue.main.async {
-                if self?.ttsProcess === proc {
-                    self?.ttsStatus = .error
+                guard let self else { return }
+                if self.stoppingTTS {
+                    self.stoppingTTS = false
+                } else {
+                    self.ttsStatus = .error
                 }
             }
         }
 
-        // Assign before run so termination handler can match (BUG-09)
+        stoppingTTS = false
         ttsProcess = process
 
         do {
@@ -160,22 +173,24 @@ class ServerManager: ObservableObject {
         healthCheckTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
             self?.checkHealth()
         }
-        // First check after 3s to give servers time to boot
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+        // Cancellable first check after 3s to give servers time to boot
+        let initialCheck = DispatchWorkItem { [weak self] in
             self?.checkHealth()
         }
+        pendingInitialCheck = initialCheck
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: initialCheck)
     }
 
     private func checkHealth() {
         checkEndpoint("http://localhost:\(sttPort)/models") { [weak self] ok in
             DispatchQueue.main.async {
-                guard let self, self.sttStatus != .stopped else { return }
+                guard let self, self.sttStatus == .starting || self.sttStatus == .running else { return }
                 self.sttStatus = ok ? .running : .starting
             }
         }
         checkEndpoint("http://localhost:\(ttsPort)/v1/models") { [weak self] ok in
             DispatchQueue.main.async {
-                guard let self, self.ttsStatus != .stopped else { return }
+                guard let self, self.ttsStatus == .starting || self.ttsStatus == .running else { return }
                 self.ttsStatus = ok ? .running : .starting
             }
         }
@@ -186,7 +201,7 @@ class ServerManager: ObservableObject {
             completion(false)
             return
         }
-        var request = URLRequest(url: url, timeoutInterval: 2)
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 2)
         request.httpMethod = "GET"
         URLSession.shared.dataTask(with: request) { _, response, _ in
             let ok = (response as? HTTPURLResponse)?.statusCode == 200
@@ -197,16 +212,13 @@ class ServerManager: ObservableObject {
     // MARK: - Process Management
 
     private func stopProcess(_ process: inout Process?, pidFile: URL) {
-        let proc = process
-        process = nil  // Clear first so termination handler's === check fails
-
-        if let proc = proc, proc.isRunning {
+        if let proc = process, proc.isRunning {
             proc.terminate()
-            // Non-blocking wait (BUG-02): wait in background, don't block UI
             DispatchQueue.global(qos: .utility).async {
                 proc.waitUntilExit()
             }
         }
+        process = nil
         try? FileManager.default.removeItem(at: pidFile)
     }
 
@@ -217,7 +229,7 @@ class ServerManager: ObservableObject {
     private func makeEnv() -> [String: String] {
         var env = ProcessInfo.processInfo.environment
         let venvBin = Paths.venv.appendingPathComponent("bin").path
-        env["PATH"] = "\(venvBin):/usr/local/bin:/usr/bin:/bin"
+        env["PATH"] = "\(venvBin):/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
         env["VIRTUAL_ENV"] = Paths.venv.path
         return env
     }

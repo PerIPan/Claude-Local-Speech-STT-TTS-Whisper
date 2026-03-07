@@ -5,8 +5,8 @@ struct MenuBarView: View {
     @EnvironmentObject var setupManager: SetupManager
     @State private var autoSubmit = false
     @State private var autoFocusEnabled = false
-    @State private var focusAppName = "Code"
-    @State private var focusSelection = "Code"
+    @State private var focusAppName = ""
+    @State private var focusSelection = "Code"  // visual default; only written on explicit toggle
     @State private var customFocusApp = ""
 
     private static let focusApps = [
@@ -18,6 +18,7 @@ struct MenuBarView: View {
         "iTerm2",
         "Warp",
         "Alacritty",
+        "Ghostty",
         "Custom"
     ]
 
@@ -97,6 +98,10 @@ struct MenuBarView: View {
             .toggleStyle(.checkbox)
             .onChange(of: autoFocusEnabled) { _, enabled in
                 if enabled {
+                    // Set default on first enable if no app was loaded from disk
+                    if focusAppName.isEmpty {
+                        focusAppName = focusSelection == "Custom" ? customFocusApp : focusSelection
+                    }
                     saveFocusApp()
                 } else {
                     try? FileManager.default.removeItem(at: Paths.autoFocusApp)
@@ -113,10 +118,12 @@ struct MenuBarView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.leading, 20)
                 .onChange(of: focusSelection) { _, newValue in
-                    if newValue != "Custom" {
+                    if newValue == "Custom" {
+                        focusAppName = customFocusApp
+                    } else {
                         focusAppName = newValue
-                        saveFocusApp()
                     }
+                    saveFocusApp()
                 }
 
                 if focusSelection == "Custom" {
@@ -206,7 +213,7 @@ struct MenuBarView: View {
 
             Divider()
 
-            Text("v1.1.0")
+            Text("v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.1.0")")
                 .font(.caption2)
                 .foregroundColor(.secondary)
                 .frame(maxWidth: .infinity, alignment: .center)

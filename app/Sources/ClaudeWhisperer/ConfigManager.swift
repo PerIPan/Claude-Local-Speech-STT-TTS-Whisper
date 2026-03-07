@@ -122,14 +122,18 @@ enum ConfigManager {
             let fileSize = fileHandle.seekToEndOfFile()
             let readStart: UInt64 = fileSize > 32768 ? fileSize - 32768 : 0
             fileHandle.seek(toFileOffset: readStart)
-            if let data = String(data: fileHandle.readDataToEndOfFile(), encoding: .utf8) {
-                let lines = data.components(separatedBy: "\n")
-                // If we seeked mid-file, drop the first (partial) line
+            let rawData = fileHandle.readDataToEndOfFile()
+            // Try UTF-8 first, fall back to lossy Latin-1
+            let decoded = String(data: rawData, encoding: .utf8)
+                ?? String(data: rawData, encoding: .isoLatin1)
+                ?? "(unable to read log)"
+            if decoded == "(unable to read log)" {
+                content = decoded
+            } else {
+                let lines = decoded.components(separatedBy: "\n")
                 let cleanLines = readStart > 0 ? Array(lines.dropFirst()) : lines
                 let tail = cleanLines.suffix(80).joined(separator: "\n")
                 content = tail.isEmpty ? "(empty)" : tail
-            } else {
-                content = "(unable to read log)"
             }
         } else {
             content = "(no log file yet)"
