@@ -17,11 +17,15 @@ struct MenuBarView: View {
     @State private var selectedLanguage = "en"
     @State private var selectedDetail = "natural"
     @State private var showStoppedBanner = false
+    @State private var selectedPlatform: Platform = .claudeCode
     @State private var hookApplied = false
     @State private var claudeMdApplied = false
     @State private var applyMessage = ""
     @State private var serverReachable = false
     @State private var launchAtLogin = false
+    @State private var setupExpanded = false
+    @State private var serverExpanded = false
+    @State private var logsExpanded = false
     @ObservedObject private var overlay = TranscriptionOverlay.shared
 
     private static let voices: [(id: String, label: String)] = [
@@ -225,14 +229,15 @@ struct MenuBarView: View {
             // Language & Voice
             HStack {
                 Text("Dictate")
-                    .font(.custom("Outfit", size: 12))
-                    .frame(width: 60, alignment: .leading)
+                    .font(.custom("Outfit", size: 11))
+                    .frame(width: 50, alignment: .leading)
                 Picker("", selection: $selectedLanguage) {
                     ForEach(Self.languages, id: \.id) { lang in
                         Text(lang.label).tag(lang.id)
                     }
                 }
                 .labelsHidden()
+                .font(.custom("Outfit", size: 11))
                 .frame(maxWidth: .infinity)
             }
             .onChange(of: selectedLanguage) { _, newValue in
@@ -245,14 +250,15 @@ struct MenuBarView: View {
 
             HStack {
                 Text("Voice")
-                    .font(.custom("Outfit", size: 12))
-                    .frame(width: 60, alignment: .leading)
+                    .font(.custom("Outfit", size: 11))
+                    .frame(width: 50, alignment: .leading)
                 Picker("", selection: $selectedVoice) {
                     ForEach(Self.voices, id: \.id) { voice in
                         Text(voice.label).tag(voice.id)
                     }
                 }
                 .labelsHidden()
+                .font(.custom("Outfit", size: 11))
                 .frame(maxWidth: .infinity)
             }
             .onChange(of: selectedVoice) { _, newValue in
@@ -261,14 +267,15 @@ struct MenuBarView: View {
 
             HStack {
                 Text("Detail")
-                    .font(.custom("Outfit", size: 12))
-                    .frame(width: 60, alignment: .leading)
+                    .font(.custom("Outfit", size: 11))
+                    .frame(width: 50, alignment: .leading)
                 Picker("", selection: $selectedDetail) {
                     ForEach(Self.detailLevels, id: \.id) { level in
                         Text(level.label).tag(level.id)
                     }
                 }
                 .labelsHidden()
+                .font(.custom("Outfit", size: 11))
                 .frame(maxWidth: .infinity)
             }
             .onChange(of: selectedDetail) { _, newValue in
@@ -332,7 +339,7 @@ struct MenuBarView: View {
                         .font(.system(size: 10))
                         .foregroundColor(.secondary)
                     Text("Transcription Overlay")
-                        .font(.custom("Outfit", size: 11))
+                        .font(.custom("Outfit", size: 12))
                     Spacer()
                     Picker("", selection: Binding(
                         get: { overlay.isVisible ? "on" : "off" },
@@ -350,124 +357,145 @@ struct MenuBarView: View {
 
             Divider().opacity(0.4)
 
-            // Claude setup
-            SectionHeader(title: "Claude Setup", icon: "hammer")
-
-            HStack(spacing: 6) {
-                Button(action: { ConfigManager.showClaudeSettingsInstructions() }) {
-                    Label("Hook", systemImage: "gearshape")
-                        .frame(maxWidth: .infinity)
+            // AI Platform setup
+            CollapsibleHeader(title: "Setup", icon: "hammer", expanded: $setupExpanded) {
+                Picker("", selection: $selectedPlatform) {
+                    ForEach(Platform.allCases, id: \.rawValue) { p in
+                        Text(p.label).tag(p)
+                    }
                 }
-                .buttonStyle(MenuBarRowButtonStyle())
-
-                Button(action: {
-                    let result = ConfigManager.applyHookToSettings()
-                    hookApplied = result.success
-                    applyMessage = result.message
+                .labelsHidden()
+                .frame(width: 120)
+                .onChange(of: selectedPlatform) { _, newValue in
+                    newValue.save()
                     refreshDiagnostics()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 3) { applyMessage = "" }
-                }) {
-                    Label(hookApplied ? "Applied" : "Auto-Apply", systemImage: hookApplied ? "checkmark.circle.fill" : "bolt.fill")
-                        .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(MenuBarRowButtonStyle())
-                .help("Writes the TTS hook into ~/.claude/settings.json")
             }
 
-            HStack(spacing: 6) {
-                Button(action: { ConfigManager.showClaudeMdInstructions() }) {
-                    Label("Voice Tag", systemImage: "doc.text")
-                        .frame(maxWidth: .infinity)
+            if setupExpanded {
+                HStack(spacing: 6) {
+                    Button(action: { ConfigManager.showHookInstructions(for: selectedPlatform) }) {
+                        Label("Hook", systemImage: "gearshape")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(MenuBarRowButtonStyle())
+
+                    Button(action: {
+                        let result = ConfigManager.applyHook(for: selectedPlatform)
+                        hookApplied = result.success
+                        applyMessage = result.message
+                        refreshDiagnostics()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { applyMessage = "" }
+                    }) {
+                        Label(hookApplied ? "Applied" : "Auto-Apply", systemImage: hookApplied ? "checkmark.circle.fill" : "bolt.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(MenuBarRowButtonStyle())
+                    .help(selectedPlatform == .claudeCode
+                        ? "Writes the TTS hook into ~/.claude/settings.json"
+                        : "Writes the notify hook into ~/.codex/config.toml")
                 }
-                .buttonStyle(MenuBarRowButtonStyle())
 
-                Button(action: {
-                    let result = ConfigManager.applyClaudeMd(forceUpdate: !claudeMdApplied)
-                    claudeMdApplied = result.success
-                    applyMessage = result.message
-                    refreshDiagnostics()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 3) { applyMessage = "" }
-                }) {
-                    Label(claudeMdApplied ? "Applied" : "Auto-Apply", systemImage: claudeMdApplied ? "checkmark.circle.fill" : "bolt.fill")
-                        .frame(maxWidth: .infinity)
+                HStack(spacing: 6) {
+                    Button(action: { ConfigManager.showVoiceTagInstructions(for: selectedPlatform) }) {
+                        Label("Voice Tag", systemImage: "doc.text")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(MenuBarRowButtonStyle())
+
+                    Button(action: {
+                        let result = ConfigManager.applyVoiceTag(for: selectedPlatform, forceUpdate: !claudeMdApplied)
+                        claudeMdApplied = result.success
+                        applyMessage = result.message
+                        refreshDiagnostics()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { applyMessage = "" }
+                    }) {
+                        Label(claudeMdApplied ? "Applied" : "Auto-Apply", systemImage: claudeMdApplied ? "checkmark.circle.fill" : "bolt.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(MenuBarRowButtonStyle())
+                    .help(selectedPlatform == .claudeCode
+                        ? "Appends VOICE tag instructions to ~/.claude/CLAUDE.md"
+                        : "Appends VOICE tag instructions to ~/.codex/instructions.md")
                 }
-                .buttonStyle(MenuBarRowButtonStyle())
-                .help("Appends VOICE tag instructions to ~/.claude/CLAUDE.md")
-            }
 
-            if !applyMessage.isEmpty {
-                Text(applyMessage)
-                    .font(.custom("Outfit", size: 10))
-                    .foregroundColor(applyMessage.contains("failed") || applyMessage.contains("Failed") ? .red : .green)
-                    .transition(.opacity)
-            }
+                if !applyMessage.isEmpty {
+                    Text(applyMessage)
+                        .font(.custom("Outfit", size: 10))
+                        .foregroundColor(applyMessage.contains("failed") || applyMessage.contains("Failed") ? .red : .green)
+                        .transition(.opacity)
+                }
 
-            // Diagnostics checklist
-            VStack(alignment: .leading, spacing: 2) {
-                DiagnosticRow(label: "Hook configured", ok: hookApplied)
-                DiagnosticRow(label: "Voice tag active", ok: claudeMdApplied)
+                VStack(alignment: .leading, spacing: 2) {
+                    DiagnosticRow(label: "Hook configured", ok: hookApplied)
+                    DiagnosticRow(label: "Voice tag active", ok: claudeMdApplied)
+                }
+                .padding(.leading, 2)
             }
-            .padding(.leading, 2)
 
             Divider().opacity(0.4)
 
             // Server controls
-            SectionHeader(title: "Server Config", icon: "gearshape")
+            CollapsibleHeader(title: "Server Config", icon: "gearshape", expanded: $serverExpanded)
 
-            let serverStopped = serverManager.status == .stopped
+            if serverExpanded {
+                let serverStopped = serverManager.status == .stopped
 
-            HStack(spacing: 6) {
-                if serverStopped || serverManager.status == .error {
-                    Button(action: { serverManager.startAll() }) {
-                        Label("Start Server", systemImage: "play.fill")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(MenuBarRowButtonStyle())
-                } else {
-                    Button(action: {
-                        serverManager.stopAll()
-                        showStoppedBanner = true
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                            showStoppedBanner = false
+                HStack(spacing: 6) {
+                    if serverStopped || serverManager.status == .error {
+                        Button(action: { serverManager.startAll() }) {
+                            Label("Start Server", systemImage: "play.fill")
+                                .frame(maxWidth: .infinity)
                         }
-                    }) {
-                        Label("Stop", systemImage: "stop.fill")
-                            .frame(maxWidth: .infinity)
+                        .buttonStyle(MenuBarRowButtonStyle())
+                    } else {
+                        Button(action: {
+                            serverManager.stopAll()
+                            showStoppedBanner = true
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                showStoppedBanner = false
+                            }
+                        }) {
+                            Label("Stop", systemImage: "stop.fill")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(MenuBarRowButtonStyle())
                     }
-                    .buttonStyle(MenuBarRowButtonStyle())
+
+                    PortField(label: "", port: $serverManager.port, disabled: !serverStopped)
                 }
 
-                PortField(label: "", port: $serverManager.port, disabled: !serverStopped)
-            }
+                if showStoppedBanner {
+                    Text("Server stopped")
+                        .font(.custom("Outfit", size: 11))
+                        .foregroundColor(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .transition(.opacity)
+                }
 
-            if showStoppedBanner {
-                Text("Server stopped")
-                    .font(.custom("Outfit", size: 11))
-                    .foregroundColor(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .transition(.opacity)
+                DiagnosticRow(label: "Server reachable", ok: serverReachable)
+                    .padding(.leading, 2)
             }
-
-            DiagnosticRow(label: "Server reachable", ok: serverReachable)
-                .padding(.leading, 2)
 
             Divider().opacity(0.4)
 
             // Logs
-            SectionHeader(title: "Logs", icon: "doc.text.magnifyingglass")
+            CollapsibleHeader(title: "Logs", icon: "doc.text.magnifyingglass", expanded: $logsExpanded)
 
-            HStack(spacing: 6) {
-                Button(action: { ConfigManager.showLog(name: "Server", url: Paths.serverLog) }) {
-                    Label("Server Log", systemImage: "doc.text")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(MenuBarRowButtonStyle())
+            if logsExpanded {
+                HStack(spacing: 6) {
+                    Button(action: { ConfigManager.showLog(name: "Server", url: Paths.serverLog) }) {
+                        Label("Server Log", systemImage: "doc.text")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(MenuBarRowButtonStyle())
 
-                Button(action: { ConfigManager.showLog(name: "Events", url: Paths.appSupport.appendingPathComponent("paste_debug.log")) }) {
-                    Label("Events Log", systemImage: "list.bullet.rectangle")
-                        .frame(maxWidth: .infinity)
+                    Button(action: { ConfigManager.showLog(name: "Events", url: Paths.appSupport.appendingPathComponent("paste_debug.log")) }) {
+                        Label("Events Log", systemImage: "list.bullet.rectangle")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(MenuBarRowButtonStyle())
                 }
-                .buttonStyle(MenuBarRowButtonStyle())
             }
 
             Divider().opacity(0.4)
@@ -518,6 +546,7 @@ struct MenuBarView: View {
         .padding(16)
         .frame(width: 260)
         .onAppear {
+            selectedPlatform = Platform.load()
             launchAtLogin = SMAppService.mainApp.status == .enabled
             autoSubmit = FileManager.default.fileExists(atPath: Paths.autoSubmitFlag.path)
             autoFocusEnabled = FileManager.default.fileExists(atPath: Paths.autoFocusApp.path)
@@ -563,8 +592,8 @@ struct MenuBarView: View {
     }
 
     private func refreshDiagnostics() {
-        hookApplied = ConfigManager.checkHookConfigured()
-        claudeMdApplied = ConfigManager.checkClaudeMdConfigured()
+        hookApplied = ConfigManager.checkHookConfigured(for: selectedPlatform)
+        claudeMdApplied = ConfigManager.checkVoiceTagConfigured(for: selectedPlatform)
         ConfigManager.testTTS(port: serverManager.port) { ok in
             DispatchQueue.main.async { serverReachable = ok }
         }
@@ -598,6 +627,55 @@ struct SectionHeader: View {
                 .font(.custom("Outfit", size: 11).weight(.medium))
                 .foregroundColor(.secondary)
         }
+    }
+}
+
+// MARK: - Collapsible Header
+
+struct CollapsibleHeader<Trailing: View>: View {
+    let title: String
+    let icon: String
+    @Binding var expanded: Bool
+    let trailing: Trailing
+
+    init(title: String, icon: String, expanded: Binding<Bool>, @ViewBuilder trailing: () -> Trailing) {
+        self.title = title
+        self.icon = icon
+        self._expanded = expanded
+        self.trailing = trailing()
+    }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            HStack(spacing: 4) {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundColor(.secondary)
+                    .rotationEffect(.degrees(expanded ? 90 : 0))
+                    .animation(.easeInOut(duration: 0.15), value: expanded)
+                Image(systemName: icon)
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                Text(title)
+                    .font(.custom("Outfit", size: 11).weight(.medium))
+                    .foregroundColor(.secondary)
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { expanded.toggle() }
+            Spacer()
+                .contentShape(Rectangle())
+                .onTapGesture { expanded.toggle() }
+            trailing
+        }
+    }
+}
+
+extension CollapsibleHeader where Trailing == EmptyView {
+    init(title: String, icon: String, expanded: Binding<Bool>) {
+        self.title = title
+        self.icon = icon
+        self._expanded = expanded
+        self.trailing = EmptyView()
     }
 }
 

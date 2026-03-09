@@ -59,11 +59,23 @@ enum Paths {
     /// Push-to-talk hotkey preference (ctrl, option, cmd, fn)
     static let pttHotkey = appSupport.appendingPathComponent("ptt_hotkey")
 
+    /// Selected AI platform (claudeCode, codexCLI)
+    static let selectedPlatform = appSupport.appendingPathComponent("selected_platform")
+
     /// Claude Code settings
     static let claudeSettings: URL = {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".claude").appendingPathComponent("settings.json")
     }()
+
+    /// Codex CLI config (~/.codex/config.toml)
+    static let codexConfig: URL = {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".codex").appendingPathComponent("config.toml")
+    }()
+
+    /// Codex TTS hook (bundled in app Resources)
+    static let codexTtsHook = resources.appendingPathComponent("hooks").appendingPathComponent("codex-tts-hook.sh")
 
     /// Ensure directories exist
     static func ensureDirectories() {

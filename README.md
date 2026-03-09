@@ -1,6 +1,6 @@
 # Claude Whisperer
 
-Full interactive Voice mode for [Claude Code](https://claude.ai/claude-code) on Apple Silicon. Talk to Claude, hear Claude talk back — all running locally on your Mac. Built-in push-to-talk dictation, Auto-Focus & easy setup. Open Source.
+Full interactive Voice mode for [Claude Code](https://claude.ai/claude-code) and [Codex CLI](https://github.com/openai/codex) on Apple Silicon. Talk to your AI, hear it talk back — all running locally on your Mac. Built-in push-to-talk dictation, Auto-Focus & easy setup. Open Source.
 
 <p align="center">
   <img src="screenshot.png" width="320" alt="Claude Whisperer menubar app">
@@ -8,7 +8,7 @@ Full interactive Voice mode for [Claude Code](https://claude.ai/claude-code) on 
 
 ## What It Does
 
-You use Claude Code normally. After every response, Claude's answer is automatically spoken aloud through your Mac's speakers using a local TTS model. For speech input, press **Ctrl** to record and press again to stop and transcribe — text is typed directly into your focused app.
+You use Claude Code or Codex CLI normally. After every response, the AI's answer is automatically spoken aloud through your Mac's speakers using a local TTS model. For speech input, press **Ctrl** to record and press again to stop and transcribe — text is typed directly into your focused app.
 
 Everything runs on your Mac — no cloud APIs, no data leaves your machine.
 
@@ -29,7 +29,8 @@ The menubar icon gives you:
 - **Voice detail** — set VOICE tag verbosity: Brief (1 sentence), Natural (1-3), or Detailed (4-6)
 - **Start on startup** — optional login item to launch automatically when you log in
 - **Automation** — Auto-Focus and Auto-Submit (requires Accessibility permission)
-- **Auto-Apply** — one-click setup for Claude hook (settings.json) and voice tag (CLAUDE.md)
+- **Platform selector** — switch between Claude Code and Codex CLI (auto-configures hooks and voice tags)
+- **Auto-Apply** — one-click setup for hooks and voice tags (adapts to selected platform)
 - **Accessibility prompt** — asks for permission on first launch with live granted/not-granted status
 - **Diagnostic checklist** — shows hook, voice tag, and TTS status at a glance
 - **Transcription overlay** — floating window showing live waveform and recent transcriptions

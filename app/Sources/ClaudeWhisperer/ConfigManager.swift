@@ -1,6 +1,31 @@
 import Foundation
 import SwiftUI
 
+// MARK: - Platform
+
+enum Platform: String, CaseIterable {
+    case claudeCode = "claudeCode"
+    case codexCLI = "codexCLI"
+
+    var label: String {
+        switch self {
+        case .claudeCode: return "Claude Code"
+        case .codexCLI: return "Codex CLI"
+        }
+    }
+
+    static func load() -> Platform {
+        guard let raw = try? String(contentsOf: Paths.selectedPlatform, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              let p = Platform(rawValue: raw) else { return .claudeCode }
+        return p
+    }
+
+    func save() {
+        try? rawValue.write(to: Paths.selectedPlatform, atomically: true, encoding: .utf8)
+    }
+}
+
 enum ConfigManager {
 
     // MARK: - Claude Code: settings.json
@@ -131,6 +156,208 @@ enum ConfigManager {
     static func showVoquillDownload() {
         if let url = URL(string: "https://github.com/josiahsrc/voquill/releases") {
             NSWorkspace.shared.open(url)
+        }
+    }
+
+    // MARK: - Codex CLI: config.toml
+
+    static func showCodexConfigInstructions() {
+        let hookPath = Paths.codexTtsHook.path
+        let window = InstructionWindow(
+            title: "Step 1: Codex CLI Hook (config.toml)",
+            instructions: """
+            Add the TTS notify hook to your Codex CLI config:
+
+            1. Open ~/.codex/config.toml
+               (create it if it doesn't exist)
+
+            2. Add the following line:
+
+            notify = ["\(hookPath)"]
+
+            This makes Codex speak every response aloud
+            via the local TTS server.
+            """
+        )
+        window.show()
+    }
+
+    static func showCodexAgentsMdInstructions() {
+        let window = InstructionWindow(
+            title: "Step 2: AGENTS.md (Voice Tag)",
+            instructions: """
+            Add this to your project's AGENTS.md file:
+
+            ## Voice Mode
+            ALWAYS include a [VOICE: ...] tag at the END
+            of every response. This tag contains a short,
+            conversational spoken summary (1-3 sentences)
+            that the TTS hook extracts and reads aloud.
+
+            Write the voice content as natural speech -
+            no code, no file paths, no markdown.
+
+            Example:
+            [VOICE: I fixed the bug in the login page.
+            It was a missing null check on the user object.]
+
+            This tells Codex to add a spoken summary
+            to every response.
+            """
+        )
+        window.show()
+    }
+
+    // MARK: - Auto-apply hook to Codex config.toml
+
+    static func applyHookToCodexConfig() -> (success: Bool, message: String) {
+        let hookPath = Paths.codexTtsHook.path
+        let configURL = Paths.codexConfig
+        let fm = FileManager.default
+
+        // Ensure ~/.codex/ exists
+        try? fm.createDirectory(at: configURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+
+        var lines: [String] = []
+        if fm.fileExists(atPath: configURL.path),
+           let content = try? String(contentsOf: configURL, encoding: .utf8) {
+            lines = content.components(separatedBy: "\n")
+        }
+
+        // Find and replace existing `notify = ...` line, or append
+        // Match exactly "notify" followed by optional whitespace and "=" to avoid
+        // corrupting other keys like "notify_on_error"
+        var found = false
+        let newNotifyLine = "notify = [\"\(hookPath)\"]"
+        for i in lines.indices {
+            let trimmed = lines[i].trimmingCharacters(in: .whitespaces)
+            // Exact key match: "notify" followed by whitespace or "="
+            if trimmed.hasPrefix("notify") {
+                let rest = trimmed.dropFirst("notify".count)
+                guard let first = rest.first, first == " " || first == "=" || first == "\t" else { continue }
+                lines[i] = newNotifyLine
+                found = true
+                break
+            }
+        }
+        if !found {
+            // Add under existing content, ensure newline separation
+            if !lines.isEmpty && !lines.last!.trimmingCharacters(in: .whitespaces).isEmpty {
+                lines.append("")
+            }
+            lines.append(newNotifyLine)
+        }
+
+        let result = lines.joined(separator: "\n")
+        do {
+            try result.write(to: configURL, atomically: true, encoding: .utf8)
+            return (true, found ? "Hook updated" : "Hook applied")
+        } catch {
+            return (false, "Write failed: \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - Auto-apply AGENTS.md voice tag (Codex)
+
+    static func applyAgentsMd(forceUpdate: Bool = false) -> (success: Bool, message: String) {
+        // Codex uses ~/.codex/instructions.md for global instructions
+        let agentsMdPath = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".codex").appendingPathComponent("instructions.md")
+        let fm = FileManager.default
+
+        let detail = (try? String(contentsOf: Paths.voiceDetail, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? "natural"
+
+        let voiceBlock = voiceBlockForDetail(detail)
+
+        if fm.fileExists(atPath: agentsMdPath.path),
+           let existing = try? String(contentsOf: agentsMdPath, encoding: .utf8) {
+            if existing.contains("[VOICE:") || existing.contains("Voice Mode") {
+                if forceUpdate {
+                    let cleaned = removeVoiceBlock(from: existing)
+                    let updated = cleaned.trimmingCharacters(in: .whitespacesAndNewlines) + "\n" + voiceBlock + "\n"
+                    do {
+                        try updated.write(to: agentsMdPath, atomically: true, encoding: .utf8)
+                        return (true, "New VOICE detail applied")
+                    } catch {
+                        return (false, "Write failed: \(error.localizedDescription)")
+                    }
+                }
+                return (true, "Voice tag active")
+            }
+            let updated = existing.trimmingCharacters(in: .whitespacesAndNewlines) + "\n" + voiceBlock + "\n"
+            do {
+                try updated.write(to: agentsMdPath, atomically: true, encoding: .utf8)
+                return (true, "Voice tag appended to instructions.md")
+            } catch {
+                return (false, "Write failed: \(error.localizedDescription)")
+            }
+        }
+
+        try? fm.createDirectory(at: agentsMdPath.deletingLastPathComponent(), withIntermediateDirectories: true)
+        do {
+            try voiceBlock.trimmingCharacters(in: .newlines).write(to: agentsMdPath, atomically: true, encoding: .utf8)
+            return (true, "instructions.md created with voice tag")
+        } catch {
+            return (false, "Write failed: \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - Codex Diagnostics
+
+    static func checkCodexHookConfigured() -> Bool {
+        guard let content = try? String(contentsOf: Paths.codexConfig, encoding: .utf8) else { return false }
+        return content.contains("codex-tts-hook") || content.contains("ClaudeWhisperer")
+    }
+
+    static func checkCodexAgentsMdConfigured() -> Bool {
+        let path = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".codex").appendingPathComponent("instructions.md")
+        guard let content = try? String(contentsOf: path, encoding: .utf8) else { return false }
+        return content.contains("[VOICE:") || content.contains("Voice Mode")
+    }
+
+    // MARK: - Platform-dispatching wrappers
+
+    static func applyHook(for platform: Platform) -> (success: Bool, message: String) {
+        switch platform {
+        case .claudeCode: return applyHookToSettings()
+        case .codexCLI: return applyHookToCodexConfig()
+        }
+    }
+
+    static func applyVoiceTag(for platform: Platform, forceUpdate: Bool = false) -> (success: Bool, message: String) {
+        switch platform {
+        case .claudeCode: return applyClaudeMd(forceUpdate: forceUpdate)
+        case .codexCLI: return applyAgentsMd(forceUpdate: forceUpdate)
+        }
+    }
+
+    static func checkHookConfigured(for platform: Platform) -> Bool {
+        switch platform {
+        case .claudeCode: return checkHookConfigured()
+        case .codexCLI: return checkCodexHookConfigured()
+        }
+    }
+
+    static func checkVoiceTagConfigured(for platform: Platform) -> Bool {
+        switch platform {
+        case .claudeCode: return checkClaudeMdConfigured()
+        case .codexCLI: return checkCodexAgentsMdConfigured()
+        }
+    }
+
+    static func showHookInstructions(for platform: Platform) {
+        switch platform {
+        case .claudeCode: showClaudeSettingsInstructions()
+        case .codexCLI: showCodexConfigInstructions()
+        }
+    }
+
+    static func showVoiceTagInstructions(for platform: Platform) {
+        switch platform {
+        case .claudeCode: showClaudeMdInstructions()
+        case .codexCLI: showCodexAgentsMdInstructions()
         }
     }
 
