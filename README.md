@@ -4,6 +4,8 @@ Full interactive Voice mode for [Claude Code](https://claude.ai/claude-code) on 
 
 <p align="center">
   <img src="screenshot.png" width="320" alt="Claude Whisperer menubar app">
+  <br>
+  <img src="screenshot2.png" width="480" alt="Claude Whisperer transcription overlay">
 </p>
 
 ## What It Does
