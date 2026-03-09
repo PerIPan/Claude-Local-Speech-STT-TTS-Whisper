@@ -19,6 +19,9 @@ class TranscriptionOverlay: NSObject, NSWindowDelegate, ObservableObject {
     private var nextLineId = 0
     private var ttsTimer: Timer?
 
+    /// The current PTT key label shown in the overlay (e.g. "Ctrl", "fn").
+    @Published var pttKeyLabel: String = "Ctrl"
+
     /// Reference to dictation manager for waveform display.
     ///
     /// FIX: Use a @Published wrapper so the SwiftUI root view can observe
@@ -241,7 +244,7 @@ struct OverlayView: View {
             .frame(height: 14)
 
             // Waveform always visible — shows status label + bars
-            WaveformBar(recorder: recorder, isTTSPlaying: overlay.isTTSPlaying)
+            WaveformBar(recorder: recorder, isTTSPlaying: overlay.isTTSPlaying, pttKeyLabel: overlay.pttKeyLabel)
                 .frame(height: 36)
                 .padding(.horizontal, 8)
 
@@ -276,6 +279,7 @@ struct OverlayView: View {
 struct WaveformBar: View {
     @ObservedObject var recorder: AudioRecorder
     var isTTSPlaying: Bool = false
+    var pttKeyLabel: String = "Ctrl"
 
     var body: some View {
         VStack(spacing: 4) {
@@ -288,7 +292,7 @@ struct WaveformBar: View {
                     .foregroundColor(statusColor)
                 Spacer()
                 if recorder.state == .recording {
-                    Text("Press Ctrl to stop")
+                    Text("Press \(pttKeyLabel) to stop")
                         .font(.custom("Outfit", size: 9))
                         .foregroundColor(.secondary)
                 }

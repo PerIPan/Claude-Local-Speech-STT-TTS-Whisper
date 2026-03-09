@@ -17,6 +17,7 @@ struct MenuBarView: View {
     @State private var selectedLanguage = "en"
     @State private var selectedDetail = "natural"
     @State private var showStoppedBanner = false
+    @State private var pttKeyChanged = false
     @State private var selectedPlatform: Platform = .claudeCode
     @State private var hookApplied = false
     @State private var claudeMdApplied = false
@@ -320,10 +321,17 @@ struct MenuBarView: View {
                 .padding(.horizontal, 2)
                 .onChange(of: selectedPTTKey) { _, newValue in
                     try? newValue.write(to: Paths.pttHotkey, atomically: true, encoding: .utf8)
-                    if let key = PTTKey(rawValue: newValue),
-                       let appDelegate = NSApp.delegate as? AppDelegate {
-                        appDelegate.hotkeyManager.pttKey = key
+                    if let key = PTTKey(rawValue: newValue) {
+                        TranscriptionOverlay.shared.pttKeyLabel = key.label
                     }
+                    pttKeyChanged = true
+                }
+
+                if pttKeyChanged {
+                    Text("Restart app to apply new hotkey")
+                        .font(.custom("Outfit", size: 9))
+                        .foregroundColor(.orange)
+                        .padding(.leading, 2)
                 }
 
                 if let err = dictationManager.error {
@@ -562,8 +570,9 @@ struct MenuBarView: View {
                 }
             }
             if let savedKey = try? String(contentsOf: Paths.pttHotkey, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines),
-               PTTKey(rawValue: savedKey) != nil {
+               let key = PTTKey(rawValue: savedKey) {
                 selectedPTTKey = savedKey
+                TranscriptionOverlay.shared.pttKeyLabel = key.label
             }
             if let savedVoice = try? String(contentsOf: Paths.ttsVoice, encoding: .utf8),
                !savedVoice.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
