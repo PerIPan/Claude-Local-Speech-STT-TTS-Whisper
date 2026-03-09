@@ -78,7 +78,7 @@ _SUBMIT_PATTERNS = {
 }
 
 _ALLOWED_FOCUS_APPS = {
-    "Code", "Code - Insiders", "Cursor", "Windsurf",
+    "Code", "Code - Insiders", "Cursor", "Windsurf", "Claude",
     "Terminal", "iTerm2", "Warp", "Alacritty", "Ghostty",
 }
 

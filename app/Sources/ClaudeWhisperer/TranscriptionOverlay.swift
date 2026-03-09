@@ -201,28 +201,21 @@ struct OverlayView: View {
 
             if overlay.lines.isEmpty && recorder.state == .idle {
                 Text("Listening for transcriptions...")
-                    .font(.custom("Outfit", size: 12))
+                    .font(.custom("Outfit", size: 10))
                     .foregroundColor(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 6) {
-                            ForEach(overlay.lines) { line in
-                                Text(line.text)
-                                    .font(.custom("Outfit", size: 13))
-                                    .textSelection(.enabled)
-                                    .id(line.id)
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(8)
-                    }
-                    .onChange(of: overlay.lines.count) { _, _ in
-                        if let last = overlay.lines.last {
-                            proxy.scrollTo(last.id, anchor: .bottom)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(overlay.lines.reversed()) { line in
+                            Text(line.text)
+                                .font(.custom("Outfit", size: 11))
+                                .textSelection(.enabled)
+                                .id(line.id)
                         }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(8)
                 }
             }
         }
@@ -244,13 +237,13 @@ struct WaveformBar: View {
                     .frame(width: 8, height: 8)
                 Text(recorder.state == .recording ? "Recording..." :
                      recorder.state == .uploading ? "Transcribing..." : "Standby")
-                    .font(.custom("Outfit", size: 11))
+                    .font(.custom("Outfit", size: 10))
                     .foregroundColor(recorder.state == .recording ? .red :
                                      recorder.state == .uploading ? .orange : .green)
                 Spacer()
                 if recorder.state == .recording {
                     Text("Press Ctrl to stop")
-                        .font(.custom("Outfit", size: 10))
+                        .font(.custom("Outfit", size: 9))
                         .foregroundColor(.secondary)
                 }
             }
@@ -262,7 +255,7 @@ struct WaveformBar: View {
                         let level = CGFloat(recorder.levelHistory[i])
                         let barHeight = max(2, level * geo.size.height * 0.9)
                         RoundedRectangle(cornerRadius: 1.5)
-                            .fill(Color.green.opacity(level * 0.6 + 0.4))
+                            .fill(Color.orange.opacity(level * 0.5 + 0.5))
                             .frame(width: 3, height: barHeight)
                     }
                 }

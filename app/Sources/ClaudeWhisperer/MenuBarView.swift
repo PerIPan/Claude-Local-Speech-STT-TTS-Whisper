@@ -57,6 +57,7 @@ struct MenuBarView: View {
         "Code - Insiders",
         "Cursor",
         "Windsurf",
+        "Claude",
         "Terminal",
         "iTerm2",
         "Warp",
@@ -110,6 +111,9 @@ struct MenuBarView: View {
                 // Server status — single unified server
                 StatusRow(label: "Whisper STT", subtitle: serverManager.sttModel, port: "\(serverManager.port)", status: serverManager.status)
                 StatusRow(label: "Kokoro TTS", subtitle: serverManager.ttsModel, port: "\(serverManager.port)", status: serverManager.status)
+
+                let isStopped = serverManager.status == .stopped
+                PortField(label: "Port", port: $serverManager.port, disabled: !isStopped)
             }
 
             Divider().opacity(0.4)
@@ -125,11 +129,11 @@ struct MenuBarView: View {
             }
 
             HStack(spacing: 16) {
-                Toggle("Auto-Submit", isOn: $autoSubmit)
+                Toggle("auto-submit", isOn: $autoSubmit)
                     .font(.custom("Outfit", size: 13))
                     .toggleStyle(.checkbox)
 
-                Toggle("Auto-Focus", isOn: $autoFocusEnabled)
+                Toggle("auto-focus", isOn: $autoFocusEnabled)
                     .font(.custom("Outfit", size: 13))
                     .toggleStyle(.checkbox)
             }
@@ -200,10 +204,7 @@ struct MenuBarView: View {
 
             Divider().opacity(0.4)
 
-            // Port & Voice
-            let isStopped = serverManager.status == .stopped
-            PortField(label: "Port", port: $serverManager.port, disabled: !isStopped)
-
+            // Language & Voice
             HStack {
                 Text("Language")
                     .font(.custom("Outfit", size: 12))
@@ -242,49 +243,42 @@ struct MenuBarView: View {
 
             Divider().opacity(0.4)
 
-            // Server controls
-            HStack(spacing: 6) {
-                if isStopped || serverManager.status == .error {
-                    Button(action: { serverManager.startAll() }) {
-                        Label("Start Server", systemImage: "play.fill")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(MenuBarButtonStyle())
+            // Push-to-Talk
+            SectionHeader(title: "Push-to-Talk", icon: "mic.fill")
 
-                    if serverManager.status == .error {
-                        Button(action: { serverManager.restartAll() }) {
-                            Label("Restart", systemImage: "arrow.clockwise")
-                                .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(MenuBarButtonStyle())
-                    }
-                } else {
-                    Button(action: {
-                        serverManager.stopAll()
-                        showStoppedBanner = true
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                            showStoppedBanner = false
-                        }
-                    }) {
-                        Label("Stop", systemImage: "stop.fill")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(MenuBarButtonStyle())
-
-                    Button(action: { serverManager.restartAll() }) {
-                        Label("Restart", systemImage: "arrow.clockwise")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(MenuBarButtonStyle())
+            if !dictationManager.recorder.micPermission {
+                Button(action: { dictationManager.recorder.openMicSettings() }) {
+                    Label("Grant Microphone Access", systemImage: "mic.slash")
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
-            }
+                .buttonStyle(MenuBarRowButtonStyle())
+                Text("Required for built-in dictation")
+                    .font(.custom("Outfit", size: 10))
+                    .foregroundColor(.orange)
+                    .padding(.leading, 2)
+            } else {
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(dictationManager.recorderState == .recording ? Color.red :
+                              dictationManager.recorderState == .uploading ? Color.orange : Color.green)
+                        .frame(width: 8, height: 8)
+                    Text(dictationManager.recorderState == .recording ? "Recording..." :
+                         dictationManager.recorderState == .uploading ? "Transcribing..." : "Standby")
+                        .font(.custom("Outfit", size: 12))
+                    Spacer()
+                    Text("Ctrl to toggle")
+                        .font(.custom("Outfit", size: 10))
+                        .foregroundColor(.secondary)
+                }
+                .padding(.horizontal, 2)
 
-            if showStoppedBanner {
-                Text("Server stopped")
-                    .font(.custom("Outfit", size: 11))
-                    .foregroundColor(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .transition(.opacity)
+                if let err = dictationManager.error {
+                    Text(err)
+                        .font(.custom("Outfit", size: 10))
+                        .foregroundColor(.red)
+                        .padding(.leading, 2)
+                        .lineLimit(2)
+                }
             }
 
             Divider().opacity(0.4)
@@ -351,46 +345,6 @@ struct MenuBarView: View {
 
             Divider().opacity(0.4)
 
-            // Push-to-Talk
-            SectionHeader(title: "Push-to-Talk", icon: "mic.fill")
-
-            if !dictationManager.recorder.micPermission {
-                Button(action: { dictationManager.recorder.openMicSettings() }) {
-                    Label("Grant Microphone Access", systemImage: "mic.slash")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(MenuBarRowButtonStyle())
-                Text("Required for built-in dictation")
-                    .font(.custom("Outfit", size: 10))
-                    .foregroundColor(.orange)
-                    .padding(.leading, 2)
-            } else {
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(dictationManager.recorderState == .recording ? Color.red :
-                              dictationManager.recorderState == .uploading ? Color.orange : Color.green)
-                        .frame(width: 8, height: 8)
-                    Text(dictationManager.recorderState == .recording ? "Recording..." :
-                         dictationManager.recorderState == .uploading ? "Transcribing..." : "Standby")
-                        .font(.custom("Outfit", size: 12))
-                    Spacer()
-                    Text("Ctrl to toggle")
-                        .font(.custom("Outfit", size: 10))
-                        .foregroundColor(.secondary)
-                }
-                .padding(.horizontal, 2)
-
-                if let err = dictationManager.error {
-                    Text(err)
-                        .font(.custom("Outfit", size: 10))
-                        .foregroundColor(.red)
-                        .padding(.leading, 2)
-                        .lineLimit(2)
-                }
-            }
-
-            Divider().opacity(0.4)
-
             // Logs
             SectionHeader(title: "Logs", icon: "doc.text.magnifyingglass")
 
@@ -440,6 +394,54 @@ struct MenuBarView: View {
             ))
                 .font(.custom("Outfit", size: 11))
                 .toggleStyle(.checkbox)
+
+            Divider().opacity(0.4)
+
+            // Server controls
+            let serverStopped = serverManager.status == .stopped
+            HStack(spacing: 6) {
+                if serverStopped || serverManager.status == .error {
+                    Button(action: { serverManager.startAll() }) {
+                        Label("Start Server", systemImage: "play.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(MenuBarButtonStyle())
+
+                    if serverManager.status == .error {
+                        Button(action: { serverManager.restartAll() }) {
+                            Label("Restart", systemImage: "arrow.clockwise")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(MenuBarButtonStyle())
+                    }
+                } else {
+                    Button(action: {
+                        serverManager.stopAll()
+                        showStoppedBanner = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                            showStoppedBanner = false
+                        }
+                    }) {
+                        Label("Stop", systemImage: "stop.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(MenuBarButtonStyle())
+
+                    Button(action: { serverManager.restartAll() }) {
+                        Label("Restart", systemImage: "arrow.clockwise")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(MenuBarButtonStyle())
+                }
+            }
+
+            if showStoppedBanner {
+                Text("Server stopped")
+                    .font(.custom("Outfit", size: 11))
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .transition(.opacity)
+            }
 
             Divider().opacity(0.4)
 
