@@ -8,13 +8,13 @@ Full interactive Voice mode for [Claude Code](https://claude.ai/claude-code) and
 
 ## What It Does
 
-You use Claude Code or Codex CLI normally. After every response, the AI's answer is automatically spoken aloud through your Mac's speakers using a local TTS model. For speech input, press **Ctrl** to record and press again to stop and transcribe — text is typed directly into your focused app.
+You use Claude Code or Codex CLI normally. After every response, the AI's answer is automatically spoken aloud through your Mac's speakers using a local TTS model. Three voice input modes: **Press-to-Talk** (press Ctrl to start/stop), **Hold-to-Talk** (hold Ctrl to record, release to transcribe), or **Hands-Free** (say "initiate" to start recording, 3s silence auto-transcribes, say "hold on" to interrupt TTS).
 
 Everything runs on your Mac — no cloud APIs, no data leaves your machine.
 
 ## Install
 
-[**Download OpenWhisperer-1.2.2.dmg**](https://github.com/PerIPan/OpenWhisperer/releases/download/v1.2.2/OpenWhisperer-1.2.2.dmg) — drag to Applications and launch.
+[**Download OpenWhisperer-1.3.0.dmg**](https://github.com/PerIPan/OpenWhisperer/releases/download/v1.3.0/OpenWhisperer-1.3.0.dmg) — drag to Applications and launch.
 
 On first launch, the app:
 - Creates a Python environment with all dependencies
@@ -215,7 +215,7 @@ chmod +x build-dmg.sh
 ./build-dmg.sh
 ```
 
-Requires Xcode Command Line Tools. Produces `Open Whisperer.app` and `OpenWhisperer-1.2.2.dmg` in `app/.build/`.
+Requires Xcode Command Line Tools. Produces `Open Whisperer.app` and `OpenWhisperer-1.3.0.dmg` in `app/.build/`.
 
 ## File Structure
 
