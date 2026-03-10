@@ -1,6 +1,10 @@
+<p align="center">
+  <img src="icon.png" width="128" alt="Open Whisperer icon">
+</p>
+
 # Open Whisperer
 
-Full interactive Voice mode for [Claude Code](https://claude.ai/claude-code) and [Codex CLI](https://github.com/openai/codex) on Apple Silicon. Talk to your AI, hear it talk back — all running locally on your Mac. Built-in push-to-talk dictation, Auto-Focus & easy setup. Open Source.
+Full interactive Voice mode for [Claude Code](https://claude.ai/claude-code) and [Codex CLI](https://github.com/openai/codex) on Apple Silicon. Talk to your AI, hear it talk back — all running locally on your Mac. Three voice input modes, Auto-Focus & easy setup. Open Source.
 
 <p align="center">
   <img src="screenshot.png" width="320" alt="Open Whisperer menubar app">
@@ -39,16 +43,32 @@ The menubar icon gives you:
 
 After setup, use the menubar buttons for configuration instructions.
 
-## Push-to-Talk Dictation
+## Voice Input Modes
 
-Built-in speech-to-text using your local Whisper server. Press **Ctrl** to start recording, press again to stop — transcribed text is typed directly into whatever app you have focused.
+Three modes for speech-to-text, all using your local Whisper server. Transcribed text is typed directly into whatever app you have focused.
 
-### How It Works
+### Press-to-Talk (default)
 
-1. Press **Ctrl** — recording starts (red indicator in menubar and overlay)
+1. Press **Ctrl** — recording starts (red indicator)
 2. Speak your message
-3. Press **Ctrl** again — audio is sent to local Whisper for transcription
-4. Transcribed text is inserted into the focused app via Accessibility (native apps) or clipboard paste (all others)
+3. Press **Ctrl** again — audio is sent to Whisper for transcription
+4. Text is inserted into the focused app
+
+### Hold-to-Talk
+
+1. Hold **Ctrl** — recording starts immediately
+2. Speak your message
+3. Release **Ctrl** — audio is transcribed and inserted
+
+### Hands-Free
+
+No button press needed. Uses on-device keyword detection (Apple Speech framework).
+
+1. Say **"initiate"** — recording starts (cyan → red indicator)
+2. Speak your message
+3. **3 seconds of silence** — audio is auto-transcribed and inserted
+4. Returns to listening for "initiate" again
+5. Say **"hold on"** during TTS playback — interrupts audio and starts recording
 
 <p align="center">
   <img src="screenshot2.png" width="480" alt="Open Whisperer transcription overlay">

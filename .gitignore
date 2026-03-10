@@ -24,3 +24,4 @@ CACHEDIR.TAG
 # IDE
 *.xcodeproj
 *.xcworkspace
+docs/plans/hands-free-mode-plan.md
