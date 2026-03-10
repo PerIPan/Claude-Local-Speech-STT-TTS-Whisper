@@ -182,6 +182,7 @@ def press_enter():
         _cg = ctypes.cdll.LoadLibrary(ctypes.util.find_library("CoreGraphics"))
         _cg.CGEventCreateKeyboardEvent.restype = ctypes.c_void_p
         _cg.CGEventCreateKeyboardEvent.argtypes = [ctypes.c_void_p, ctypes.c_uint16, ctypes.c_bool]
+        _cg.CGEventSetFlags.argtypes = [ctypes.c_void_p, ctypes.c_uint64]
         _cg.CGEventPost.argtypes = [ctypes.c_uint32, ctypes.c_void_p]
         _cg.CFRelease.argtypes = [ctypes.c_void_p]
 
@@ -190,6 +191,10 @@ def press_enter():
 
         key_down = _cg.CGEventCreateKeyboardEvent(None, kVK_Return, True)
         key_up = _cg.CGEventCreateKeyboardEvent(None, kVK_Return, False)
+        # Explicitly clear all modifier flags so held keys (Ctrl, Cmd, etc.)
+        # don't bleed into the Enter event
+        _cg.CGEventSetFlags(key_down, 0)
+        _cg.CGEventSetFlags(key_up, 0)
         _cg.CGEventPost(kCGSessionEventTap, key_down)
         _cg.CGEventPost(kCGSessionEventTap, key_up)
         _cg.CFRelease(key_down)
@@ -199,7 +204,7 @@ def press_enter():
 
 
 async def _delayed_enter():
-    await asyncio.sleep(0.3)
+    await asyncio.sleep(1.0)
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, press_enter)
 

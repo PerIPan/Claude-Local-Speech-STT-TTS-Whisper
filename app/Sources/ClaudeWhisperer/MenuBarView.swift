@@ -187,11 +187,6 @@ struct MenuBarView: View {
                 }
             }
 
-            // Info text below checkboxes
-            Text("say \"submit\" or \"send\" at end of phrase")
-                .font(.custom("Outfit", size: 10))
-                .foregroundColor(.secondary)
-                .padding(.leading, 2)
 
             if autoFocusEnabled {
                 Picker("", selection: $focusSelection) {
