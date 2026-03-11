@@ -10,8 +10,8 @@ private enum OWColor {
     static let muted = Color.secondary
     /// Thin separator line
     static let divider = Color.primary.opacity(0.08)
-    /// Accent — dark gray for interactive states (pickers, checkboxes)
-    static let accent = Color.gray
+    /// Accent — light gray for interactive states (pickers, checkboxes)
+    static let accent = Color.secondary
     /// Inline tag pill background
     static let pillBackground = Color.primary.opacity(0.06)
 }
@@ -175,8 +175,8 @@ struct MenuBarView: View {
         .padding(14)
         .font(OWFont.body())
         .frame(width: 310)
-        .tint(Color.gray)
-        .accentColor(Color.gray)
+        .tint(Color.secondary)
+        .accentColor(Color.secondary)
         .background(.ultraThinMaterial)
         .onAppear {
             selectedPlatform = Platform.load()
