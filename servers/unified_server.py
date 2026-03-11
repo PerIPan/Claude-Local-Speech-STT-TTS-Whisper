@@ -8,34 +8,42 @@ import os
 import re
 import signal
 import subprocess
+import io
 import tempfile
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
+import soundfile as sf
+
 import mlx_whisper
 import uvicorn
 from fastapi import File, Form, UploadFile
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 
 # Import the mlx_audio server app (includes TTS + /v1/models + WebSocket STT)
-from mlx_audio.server import app, setup_cors
+from mlx_audio.server import app, model_provider, setup_cors, SpeechRequest
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("unified_server")
+
+# NOTE: Voice cache fix applied directly in venv kokoro.py —
+# commented out `pipeline.voices = {}` to prevent re-loading voice
+# tensors from disk on every TTS request (~200-500ms saving).
 
 # ---------------------------------------------------------------------------
 # Remove mlx_audio's built-in /v1/audio/transcriptions so we can replace it
 # with our version that adds auto-submit, barge-in, etc.
 # ---------------------------------------------------------------------------
 _original_count = len(app.routes)
-_override_paths = {"/v1/audio/transcriptions", "/v1/models"}
+_override_paths = {"/v1/audio/transcriptions", "/v1/models", "/v1/audio/speech"}
 app.routes[:] = [
     r for r in app.routes
     if not (hasattr(r, "path") and r.path in _override_paths
             and hasattr(r, "methods")
             and (("POST" in (r.methods or set()) and r.path == "/v1/audio/transcriptions")
-                 or ("GET" in (r.methods or set()) and r.path == "/v1/models")))
+                 or ("GET" in (r.methods or set()) and r.path == "/v1/models")
+                 or ("POST" in (r.methods or set()) and r.path == "/v1/audio/speech")))
 ]
 _removed = _original_count - len(app.routes)
 if _removed == 0:
@@ -72,8 +80,8 @@ SUBMIT_TRIGGERS = sorted(
 # Pre-compiled regex patterns for submit triggers (avoid per-request compilation)
 _SUBMIT_PATTERNS = {
     trigger: re.compile(
-        (r'\s*' + re.escape(trigger) + r'[.!?,]?$') if ' ' in trigger
-        else (r'\s*\b' + re.escape(trigger) + r'[.!?,]?$'),
+        (r'\s*' + re.escape(trigger) + r'[.!?,…]*$') if ' ' in trigger
+        else (r'\s*\b' + re.escape(trigger) + r'[.!?,…]*$'),
         re.IGNORECASE
     )
     for trigger in SUBMIT_TRIGGERS
@@ -85,8 +93,12 @@ _ALLOWED_FOCUS_APPS = {
     "Terminal", "iTerm2", "Warp", "Alacritty", "Ghostty",
 }
 
-_transcribe_lock = threading.Lock()
+# Global MLX GPU lock — serializes Metal operations (TTS + STT) to prevent
+# concurrent GPU access which causes Metal assertion crashes.
+# STT acquires with a 30s timeout so barge-in never deadlocks.
+_mlx_gpu_lock = threading.Lock()
 _transcribe_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="transcribe")
+_tts_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="tts")
 _pending_enter_task: asyncio.Task | None = None
 _enter_lock = asyncio.Lock()
 
@@ -104,16 +116,30 @@ def _get_default_language():
 
 
 def _serialize_transcribe(tmp_path, language):
-    with _transcribe_lock:
+    # Use timeout to prevent deadlock if TTS holds the lock during barge-in.
+    # If we can't acquire within 10s, proceed anyway (rare Metal crash is
+    # better than guaranteed deadlock).
+    acquired = _mlx_gpu_lock.acquire(timeout=10)
+    try:
         return mlx_whisper.transcribe(tmp_path, path_or_hf_repo=WHISPER_MODEL, language=language)
+    finally:
+        if acquired:
+            _mlx_gpu_lock.release()
 
 
 def check_submit_trigger(text):
-    lower = text.lower().rstrip(" .,!?")
+    stripped = text.strip()
+    lower = stripped.lower().rstrip(" .,!?…")
     for trigger in SUBMIT_TRIGGERS:
         if lower.endswith(trigger):
-            cleaned = _SUBMIT_PATTERNS[trigger].sub('', text.strip())
-            return cleaned, True
+            # Apply regex to stripped text; pattern allows trailing punctuation (#3)
+            cleaned = _SUBMIT_PATTERNS[trigger].sub('', stripped)
+            if cleaned != stripped:  # regex actually matched and removed something
+                return cleaned.rstrip(), True
+            # Fallback: strip the trigger word directly
+            idx = lower.rfind(trigger)
+            if idx >= 0:
+                return stripped[:idx].rstrip(), True
     return text, False
 
 
@@ -161,7 +187,6 @@ def kill_tts():
             ["pkill", "-INT", "-U", str(os.getuid()), "-f", "afplay.*tts_"],
             capture_output=True, timeout=2,
         )
-        time.sleep(0.15)
         subprocess.run(
             ["pkill", "-U", str(os.getuid()), "-f", "afplay.*tts_"],
             capture_output=True, timeout=2,
@@ -220,6 +245,7 @@ async def transcribe(
     model: str = Form(default="whisper-1"),
     language: str = Form(default=None),
     response_format: str = Form(default="json"),
+    hands_free: str = Form(default=None),
 ):
     tmp_path = None
     try:
@@ -245,7 +271,9 @@ async def transcribe(
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(
             _transcribe_executor,
-            lambda p=tmp_path, l=language: _serialize_transcribe(p, l or _get_default_language()),
+            lambda p=tmp_path, l=language: _serialize_transcribe(
+                p, None if (not l or l == "auto") else l or _get_default_language()
+            ),
         )
         text = result.get("text", "")
         if text.strip():
@@ -266,9 +294,13 @@ async def transcribe(
         # natively via NSRunningApplication.activate() before text insertion.
 
         should_submit = False
-        if os.path.exists(AUTO_SUBMIT_FLAG):
+        if hands_free == "true":
+            # Hands-free: Swift app handles Enter — server only strips trigger words
             text, _ = check_submit_trigger(text)
-            should_submit = True
+        elif os.path.exists(AUTO_SUBMIT_FLAG):
+            text, should_submit = check_submit_trigger(text)
+            if not should_submit:
+                should_submit = True  # auto-submit always sends Enter when flag set
 
         if should_submit:
             global _pending_enter_task
@@ -286,6 +318,71 @@ async def transcribe(
 
 
 # ---------------------------------------------------------------------------
+# Custom TTS endpoint — replaces mlx_audio's /v1/audio/speech.
+# Pre-generates ALL audio under _mlx_gpu_lock, then streams bytes from RAM.
+# This serializes Metal GPU access with STT without holding the lock during
+# HTTP transfer (avoids deadlock).
+# ---------------------------------------------------------------------------
+
+def _serialize_tts(payload: SpeechRequest) -> list[bytes]:
+    """Run TTS generation under the GPU lock. Returns encoded audio chunks."""
+    model = model_provider.load_model(payload.model)
+    acquired = _mlx_gpu_lock.acquire(timeout=30)
+    if not acquired:
+        logger.warning("TTS could not acquire GPU lock within 30s; proceeding unlocked")
+    try:
+        chunks: list[bytes] = []
+        for result in model.generate(
+            payload.input,
+            voice=payload.voice,
+            speed=payload.speed,
+            gender=payload.gender,
+            pitch=payload.pitch,
+            lang_code=payload.lang_code,
+            ref_audio=payload.ref_audio,
+            ref_text=payload.ref_text,
+            temperature=payload.temperature,
+            top_p=payload.top_p,
+            top_k=payload.top_k,
+            repetition_penalty=payload.repetition_penalty,
+        ):
+            buf = io.BytesIO()
+            sf.write(buf, result.audio, result.sample_rate, format=payload.response_format)
+            buf.seek(0)
+            chunks.append(buf.getvalue())
+        return chunks
+    finally:
+        if acquired:
+            _mlx_gpu_lock.release()
+
+
+@app.post("/v1/audio/speech")
+async def tts_speech(payload: SpeechRequest):
+    """GPU-serialized TTS: pre-generate all audio under lock, then stream."""
+    loop = asyncio.get_running_loop()
+    try:
+        chunks = await loop.run_in_executor(
+            _tts_executor,
+            lambda p=payload: _serialize_tts(p),
+        )
+    except Exception:
+        logger.exception("TTS generation failed")
+        return JSONResponse({"error": "TTS generation failed"}, status_code=500)
+
+    async def _stream(data: list[bytes]):
+        for chunk in data:
+            yield chunk
+
+    return StreamingResponse(
+        _stream(chunks),
+        media_type=f"audio/{payload.response_format}",
+        headers={
+            "Content-Disposition": f"attachment; filename=speech.{payload.response_format}"
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
 # Models endpoint — lists both STT and TTS models
 # ---------------------------------------------------------------------------
 @app.get("/v1/models")
@@ -298,6 +395,26 @@ async def list_models():
             {"id": TTS_MODEL, "object": "model", "owned_by": "local", "type": "tts"},
         ],
     }
+
+
+# ---------------------------------------------------------------------------
+# Fix 2: Warm up TTS model on startup so the first real request is fast.
+# Loads model weights, runs a short inference to populate MLX JIT cache.
+# ---------------------------------------------------------------------------
+@app.on_event("startup")
+async def _warmup_tts():
+    def _do_warmup():
+        try:
+            logger.info("Warming up TTS model...")
+            model = model_provider.load_model(TTS_MODEL)
+            # Run a minimal inference to JIT-compile the Metal kernels
+            for _ in model.generate("hello", voice="af_heart", lang_code="a"):
+                pass
+            logger.info("TTS warm-up complete")
+        except Exception:
+            logger.warning("TTS warm-up failed (non-fatal)", exc_info=True)
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(_tts_executor, _do_warmup)
 
 
 # ---------------------------------------------------------------------------

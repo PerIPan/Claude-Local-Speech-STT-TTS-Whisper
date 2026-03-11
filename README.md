@@ -12,13 +12,13 @@ Full interactive Voice mode for [Claude Code](https://claude.ai/claude-code) and
 
 ## What It Does
 
-You use Claude Code or Codex CLI normally. After every response, the AI's answer is automatically spoken aloud through your Mac's speakers using a local TTS model. Three voice input modes: **Press-to-Talk** (press Ctrl to start/stop), **Hold-to-Talk** (hold Ctrl to record, release to transcribe), or **Hands-Free** (say "initiate" to start recording, 3s silence auto-transcribes, say "hold on" to interrupt TTS).
+You use Claude Code or Codex CLI normally. After every response, the AI's answer is automatically spoken aloud through your Mac's speakers using a local TTS model. Three voice input modes: **Press-to-Talk** (press hotkey to start/stop), **Hold-to-Talk** (hold hotkey to record, release to transcribe), or **Hands-Free** (say "initiate" to start recording, 3s silence auto-transcribes, say "hold on" to interrupt TTS).
 
 Everything runs on your Mac — no cloud APIs, no data leaves your machine.
 
 ## Install
 
-[**Download OpenWhisperer-1.3.0.dmg**](https://github.com/PerIPan/OpenWhisperer/releases/download/v1.3.0/OpenWhisperer-1.3.0.dmg) — drag to Applications and launch.
+[**Download OpenWhisperer-1.3.1.dmg**](https://github.com/PerIPan/OpenWhisperer/releases/download/v1.3.1/OpenWhisperer-1.3.1.dmg) — drag to Applications and launch.
 
 On first launch, the app:
 - Creates a Python environment with all dependencies
@@ -31,6 +31,7 @@ The menubar icon gives you:
 - **Language selector** — set STT language to avoid hallucinations (17 languages)
 - **Voice picker** — choose from 11 Kokoro voices across 8 languages (no server restart needed)
 - **Voice detail** — set VOICE tag verbosity: Brief (1 sentence), Natural (1-3), or Detailed (4-6)
+- **TTS Volume** — Low, Medium (default), or High output volume
 - **Start on startup** — optional login item to launch automatically when you log in
 - **Automation** — Auto-Focus and Auto-Submit (requires Accessibility permission)
 - **Platform selector** — switch between Claude Code and Codex CLI (auto-configures hooks and voice tags)
@@ -52,7 +53,7 @@ Three modes for speech-to-text, all using your local Whisper server. Transcribed
 1. Press **Ctrl** — recording starts (red indicator)
 2. Speak your message
 3. Press **Ctrl** again — audio is sent to Whisper for transcription
-4. Text is inserted into the focused app
+4. Text is inserted via Accessibility (native apps) or CGEvent Unicode typing (all others) — clipboard is never touched
 
 ### Hold-to-Talk
 
@@ -64,11 +65,11 @@ Three modes for speech-to-text, all using your local Whisper server. Transcribed
 
 No button press needed. Uses on-device keyword detection (Apple Speech framework).
 
-1. Say **"initiate"** — recording starts (cyan → red indicator)
-2. Speak your message
+1. say **"initiate"** — recording starts (cyan → red indicator)
+2. speak your message
 3. **3 seconds of silence** — audio is auto-transcribed and inserted
-4. Returns to listening for "initiate" again
-5. Say **"hold on"** during TTS playback — interrupts audio and starts recording
+4. returns to listening for "initiate" again
+5. say **"hold on"** during TTS playback — interrupts audio and starts recording
 
 <p align="center">
   <img src="screenshot2.png" width="480" alt="Open Whisperer transcription overlay">
@@ -130,6 +131,7 @@ Choose how verbose the spoken summary is (set in the menubar under **Detail**):
 |----------|---------|---------|-------------|
 | `TTS_URL` | `http://localhost:8000/v1/audio/speech` | tts-hook.sh | Unified server TTS endpoint |
 | `TTS_VOICE` | `af_heart` | tts-hook.sh | Kokoro voice name |
+| `TTS_VOLUME` | `1` | tts-hook.sh | Playback volume (0.3=Low, 1=Medium, 4=High) |
 | `TTS_MODEL` | `prince-canuma/Kokoro-82M` | tts-hook.sh | TTS model |
 | `SERVER_PORT` | `8000` | unified_server.py | Server port |
 | `WHISPER_MODEL` | `mlx-community/whisper-large-v3-turbo` | unified_server.py | Whisper model |
@@ -235,7 +237,7 @@ chmod +x build-dmg.sh
 ./build-dmg.sh
 ```
 
-Requires Xcode Command Line Tools. Produces `Open Whisperer.app` and `OpenWhisperer-1.3.0.dmg` in `app/.build/`.
+Requires Xcode Command Line Tools. Produces `Open Whisperer.app` and `OpenWhisperer-1.3.1.dmg` in `app/.build/`.
 
 ## File Structure
 

@@ -54,10 +54,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if let saved = try? String(contentsOf: Paths.pttHotkey, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines),
            let key = PTTKey(rawValue: saved) {
             hotkeyManager.pttKey = key
+            TranscriptionOverlay.shared.pttKeyLabel = key.label
         }
 
         // Load saved interaction mode
         dictationManager.interactionMode = InteractionMode.load()
+        TranscriptionOverlay.shared.interactionMode = dictationManager.interactionMode
 
         // Capture the frontmost app PID at the moment the hotkey is pressed down,
         // before recording UI or any window can steal focus away.

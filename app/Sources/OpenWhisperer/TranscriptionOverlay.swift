@@ -22,6 +22,9 @@ class TranscriptionOverlay: NSObject, NSWindowDelegate, ObservableObject {
     /// The current PTT key label shown in the overlay (e.g. "Ctrl", "fn").
     @Published var pttKeyLabel: String = "Ctrl"
 
+    /// Current interaction mode — determines hint text during recording.
+    @Published var interactionMode: InteractionMode = .pressToTalk
+
     /// Reference to dictation manager for waveform display.
     ///
     /// FIX: Use a @Published wrapper so the SwiftUI root view can observe
@@ -204,10 +207,10 @@ class TranscriptionOverlay: NSObject, NSWindowDelegate, ObservableObject {
     }
 
     private func stopTailing() {
+        // Cancel source first — its cancel handler exclusively closes the file handle (H-4)
         let src = source
         source = nil
         fileHandle = nil
-        // Cancel after clearing refs — the cancel handler closes the file handle
         src?.cancel()
     }
 }
@@ -244,7 +247,7 @@ struct OverlayView: View {
             .frame(height: 14)
 
             // Waveform always visible — shows status label + bars
-            WaveformBar(recorder: recorder, isTTSPlaying: overlay.isTTSPlaying, pttKeyLabel: overlay.pttKeyLabel)
+            WaveformBar(recorder: recorder, isTTSPlaying: overlay.isTTSPlaying, pttKeyLabel: overlay.pttKeyLabel, interactionMode: overlay.interactionMode)
                 .frame(height: 36)
                 .padding(.horizontal, 8)
 
@@ -280,6 +283,53 @@ struct WaveformBar: View {
     @ObservedObject var recorder: AudioRecorder
     var isTTSPlaying: Bool = false
     var pttKeyLabel: String = "Ctrl"
+    var interactionMode: InteractionMode = .pressToTalk
+
+    /// Active waveform gradient: cyan → blue → purple → magenta
+    private static let waveGradient = LinearGradient(
+        colors: [
+            Color(red: 0.0, green: 0.78, blue: 0.95),
+            Color(red: 0.35, green: 0.60, blue: 0.90),
+            Color(red: 0.55, green: 0.45, blue: 0.80),
+            Color(red: 0.72, green: 0.30, blue: 0.68),
+            Color(red: 0.82, green: 0.22, blue: 0.55),
+        ],
+        startPoint: .leading,
+        endPoint: .trailing
+    )
+
+    /// Idle/standby waveform gradient: green tones
+    private static let idleGradient = LinearGradient(
+        colors: [
+            Color(red: 0.2, green: 0.75, blue: 0.4),
+            Color(red: 0.3, green: 0.8, blue: 0.5),
+            Color(red: 0.2, green: 0.7, blue: 0.45),
+        ],
+        startPoint: .leading,
+        endPoint: .trailing
+    )
+
+    /// Listening gradient: cyan/blue tones
+    private static let listeningGradient = LinearGradient(
+        colors: [
+            Color(red: 0.0, green: 0.75, blue: 0.9),
+            Color(red: 0.1, green: 0.8, blue: 1.0),
+            Color(red: 0.0, green: 0.7, blue: 0.85),
+        ],
+        startPoint: .leading,
+        endPoint: .trailing
+    )
+
+    /// TTS-mode gradient: warm orange tones
+    private static let ttsGradient = LinearGradient(
+        colors: [
+            Color(red: 1.0, green: 0.6, blue: 0.2),
+            Color(red: 1.0, green: 0.45, blue: 0.3),
+            Color(red: 0.95, green: 0.35, blue: 0.45),
+        ],
+        startPoint: .leading,
+        endPoint: .trailing
+    )
 
     var body: some View {
         VStack(spacing: 4) {
@@ -292,58 +342,78 @@ struct WaveformBar: View {
                     .foregroundColor(statusColor)
                 Spacer()
                 if recorder.state == .recording {
-                    Text("Press \(pttKeyLabel) to stop")
+                    let hint: String = {
+                        switch interactionMode {
+                        case .holdToTalk: return "Release \(pttKeyLabel) to stop"
+                        case .handsFree: return "silence submits"
+                        case .pressToTalk: return "Press \(pttKeyLabel) to stop"
+                        }
+                    }()
+                    Text(hint)
                         .font(.custom("Outfit", size: 9))
                         .foregroundColor(.secondary)
                 }
             }
 
-            // Waveform — mic bars when recording, TTS pulse when speaking
+            // Mirrored line waveform
             GeometryReader { geo in
-                let barWidth: CGFloat = 3
-                let spacing: CGFloat = 2
-                let maxBars = Int(geo.size.width / (barWidth + spacing))
-
                 if isTTSPlaying && recorder.state == .idle {
-                    // TTS playback — animated pulsing bars (orange = Anthropic/Claude)
-                    TimelineView(.animation(minimumInterval: 0.05)) { timeline in
+                    TimelineView(.animation(minimumInterval: 0.03)) { timeline in
                         let time = timeline.date.timeIntervalSinceReferenceDate
-                        HStack(alignment: .center, spacing: spacing) {
-                            ForEach(0..<maxBars, id: \.self) { i in
-                                let phase = sin(time * 3.5 + Double(i) * 0.3) * 0.5 + 0.5
-                                let barHeight = max(2, CGFloat(phase) * geo.size.height * 0.8)
-                                RoundedRectangle(cornerRadius: 1.5)
-                                    .fill(Color.orange.opacity(phase * 0.4 + 0.4))
-                                    .frame(width: barWidth, height: barHeight)
-                            }
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                        let levels = Self.ttsLevels(count: 50, time: time)
+                        Self.mirroredLines(levels: levels, size: geo.size)
+                            .fill(Self.ttsGradient)
                     }
                 } else {
-                    // User mic recording waveform (green)
-                    let visibleCount = min(maxBars, recorder.levelHistory.count)
-                    let startIndex = recorder.levelHistory.count - visibleCount
-
-                    HStack(alignment: .center, spacing: spacing) {
-                        ForEach(startIndex..<recorder.levelHistory.count, id: \.self) { i in
-                            let level = CGFloat(recorder.levelHistory[i])
-                            let barHeight = max(2, level * geo.size.height)
-                            RoundedRectangle(cornerRadius: 1.5)
-                                .fill(Color.green.opacity(level * 0.5 + 0.5))
-                                .frame(width: barWidth, height: barHeight)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
-                    .opacity(recorder.state == .uploading ? 0.4 : recorder.state == .idle ? 0.3 : 1.0)
+                    let gradient = recorder.state == .listening ? Self.listeningGradient : Self.idleGradient
+                    Self.mirroredLines(levels: recorder.levelHistory.map { CGFloat($0) }, size: geo.size)
+                        .fill(gradient)
+                        .opacity(recorder.state == .uploading ? 0.5 : recorder.state == .idle ? 0.25 : 1.0)
                 }
             }
+        }
+    }
+
+    // MARK: - Mirrored Lines
+
+    /// Vertical bars mirrored around center line, tapered at edges.
+    private static func mirroredLines(levels: [CGFloat], size: CGSize) -> Path {
+        guard !levels.isEmpty else { return Path() }
+
+        let n = levels.count
+        let barWidth: CGFloat = 2
+        let gap: CGFloat = max(1, (size.width - barWidth * CGFloat(n)) / CGFloat(n - 1))
+        let step = barWidth + gap
+        let midY = size.height / 2
+        let maxHalf = midY - 1  // leave 1pt breathing room
+
+        var path = Path()
+        for (i, level) in levels.enumerated() {
+            let t = CGFloat(i) / CGFloat(max(n - 1, 1))
+            let taper = min(t * 5, (1 - t) * 5, 1.0)
+            let h = max(1, level * taper * maxHalf)
+            let x = CGFloat(i) * step
+            let rect = CGRect(x: x, y: midY - h, width: barWidth, height: h * 2)
+            path.addRoundedRect(in: rect, cornerSize: CGSize(width: 1, height: 1))
+        }
+        return path
+    }
+
+    /// Generate sine-wave levels for TTS animation.
+    private static func ttsLevels(count: Int, time: Double) -> [CGFloat] {
+        (0..<count).map { i in
+            let t = Double(i) / Double(count - 1)
+            let wave1 = sin(time * 3.0 + t * .pi * 4) * 0.35
+            let wave2 = sin(time * 1.8 + t * .pi * 2.5) * 0.25
+            let wave3 = sin(time * 5.0 + t * .pi * 7) * 0.1
+            return CGFloat(max(0.05, (wave1 + wave2 + wave3 + 0.5) * 0.8))
         }
     }
 
     private var statusColor: Color {
         if isTTSPlaying && recorder.state == .idle { return .orange }
         switch recorder.state {
-        case .recording: return .green
+        case .recording: return .red
         case .uploading: return .orange
         case .listening: return .cyan
         case .idle: return .green

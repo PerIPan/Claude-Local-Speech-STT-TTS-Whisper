@@ -67,11 +67,12 @@ class HotkeyManager {
             }
         }
 
-        // Local monitor: catches events when our app IS focused (main thread).
+        // Local monitor: catches events when our app IS focused.
+        // Dispatch to main for consistency with global monitor (M-5).
         localMonitor = NSEvent.addLocalMonitorForEvents(
             matching: [.flagsChanged, .keyDown]
         ) { [weak self] event in
-            self?.handleEvent(event)
+            DispatchQueue.main.async { self?.handleEvent(event) }
             return event
         }
     }
@@ -93,7 +94,9 @@ class HotkeyManager {
             } else if !pressed && keyDown {
                 keyDown = false
                 if !wasCombo {
+                    // Fire onKeyUp first (hold-to-talk uses this to stop recording)
                     onKeyUp?()
+                    // onToggle fires second — AppDelegate guards against hold-to-talk (L-3)
                     onToggle?()
                 }
             }

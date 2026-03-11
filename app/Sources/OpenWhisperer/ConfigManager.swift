@@ -242,7 +242,7 @@ enum ConfigManager {
         }
         if !found {
             // Add under existing content, ensure newline separation
-            if !lines.isEmpty && !lines.last!.trimmingCharacters(in: .whitespaces).isEmpty {
+            if !lines.isEmpty && !(lines.last?.trimmingCharacters(in: .whitespaces).isEmpty ?? true) {
                 lines.append("")
             }
             lines.append(newNotifyLine)

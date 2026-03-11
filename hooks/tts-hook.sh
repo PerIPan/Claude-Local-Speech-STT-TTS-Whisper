@@ -1,4 +1,6 @@
 #!/bin/bash
+# Enforce UTF-8 for safe string slicing (#15)
+export LANG="${LANG:-en_US.UTF-8}"
 # Claude Code Stop hook — speaks the last response via mlx_audio TTS
 # Claude includes a [VOICE: ...] tag with a spoken summary
 # Fully async: TTS generation + playback runs in background
@@ -31,9 +33,9 @@ if [ -d "$HOOK_LOCK" ]; then
   fi
 fi
 LOCK_ACQUIRED=false
-for _try in 1 2 3 4 5; do
+for _try in 1 2 3; do
   if mkdir "$HOOK_LOCK" 2>/dev/null; then LOCK_ACQUIRED=true; break; fi
-  sleep 0.2
+  sleep 0.1
 done
 trap 'rm -rf "$HOOK_LOCK"' EXIT
 # If lock not acquired after retries, another hook is running — skip
@@ -48,7 +50,6 @@ if [ -f "$PIDFILE" ] && [ ! -L "$PIDFILE" ]; then
     if [[ "$OLD_COMM" == *"bash"* ]] || [[ "$OLD_COMM" == *"afplay"* ]]; then
       # Send SIGINT to afplay children first (cleaner stop than SIGTERM)
       pkill -INT -P "$OLD_PID" 2>/dev/null
-      sleep 0.15  # brief fade window
       kill "$OLD_PID" 2>/dev/null
       pkill -P "$OLD_PID" 2>/dev/null
     fi
@@ -70,7 +71,8 @@ TEXT=$(echo "$INPUT" | jq -r '.last_assistant_message // empty')
 
 # Extract [VOICE: ...] tag if present (Claude generates the spoken summary)
 # Use tail -1 to grab the LAST [VOICE:] tag (avoids matching literal mentions of the tag)
-SPEECH=$(echo "$TEXT" | sed -n -E 's/.*\[VOICE: (.*)\].*/\1/p' | tail -1)
+# Use [^]]* (non-greedy via character class exclusion) to avoid grabbing nested brackets (#14)
+SPEECH=$(echo "$TEXT" | sed -n -E 's/.*\[VOICE: ([^]]*)\].*/\1/p' | tail -1)
 
 # Fallback: clean up raw text if no VOICE tag
 if [ -z "$SPEECH" ]; then
@@ -98,22 +100,14 @@ fi
 # Lock AFTER validation — only when we know we'll play audio
 touch "$LOCKFILE"
 
-# Fast-fail: check if TTS server is reachable (2s timeout)
-# Prevents 30s+ mic block when server is down
 TTS_URL="${TTS_URL:-http://localhost:8000/v1/audio/speech}"
 # Validate TTS_URL points to localhost
 case "$TTS_URL" in
   http://localhost:*|http://127.0.0.1:*) ;;
   *)
-    echo "WARNING: TTS_URL points to non-local host, using default" >&2
     TTS_URL="http://localhost:8000/v1/audio/speech"
     ;;
 esac
-
-if ! curl -s --max-time 2 "${TTS_URL%/audio/speech}/models" > /dev/null 2>&1; then
-  rm -f "$LOCKFILE"
-  exit 0
-fi
 
 # Run entire TTS pipeline in background (non-blocking)
 (
@@ -135,12 +129,22 @@ fi
       -d "$(jq -n --arg t "$SPEECH" --arg v "$VOICE" --arg m "$MODEL" '{model: $m, input: $t, voice: $v}')" \
       --output "$TMPFILE" --max-time 30 2>/dev/null
     # Validate response is audio (WAV starts with RIFF), not a JSON error
-    if [ -s "$TMPFILE" ] && head -c 4 "$TMPFILE" | grep -q "RIFF"; then break; fi
+    # Validate WAV header using dd (avoids forking head|grep pipeline) (#11)
+    if [ -s "$TMPFILE" ] && [[ "$(dd if="$TMPFILE" bs=4 count=1 2>/dev/null)" == "RIFF" ]]; then break; fi
     sleep 1
   done
 
+  # Read volume from app config, fall back to env var, then default
+  VOLUME_FILE="$APP_SUPPORT/tts_volume"
+  if [ -f "$VOLUME_FILE" ] && [ ! -L "$VOLUME_FILE" ]; then
+    SAVED_VOLUME=$(cat "$VOLUME_FILE" 2>/dev/null | tr -d '[:space:]')
+    VOLUME="${SAVED_VOLUME:-${TTS_VOLUME:-1}}"
+  else
+    VOLUME="${TTS_VOLUME:-1}"
+  fi
+
   if [ -s "$TMPFILE" ]; then
-    afplay -v 4 "$TMPFILE" 2>/dev/null
+    afplay -v "$VOLUME" "$TMPFILE" 2>/dev/null
   fi
   rm -f "$LOCKFILE"
   rm -f "$TMPFILE" 2>/dev/null

@@ -32,13 +32,23 @@ class AudioRecorder: ObservableObject {
     var speechThresholdMultiplier: Float = 4.0
     /// Silence duration threshold in seconds (configurable, default 3)
     var silenceThresholdSeconds: TimeInterval = 3.0
-    /// Whether silence detection is active (hands-free mode)
-    var silenceDetectionEnabled = false
+    /// Whether silence detection is active (hands-free mode).
+    /// Read from audio tap thread, written from main — use lock for thread safety (C-3).
+    private var _silenceDetectionEnabled = false
+    var silenceDetectionEnabled: Bool {
+        get { bufferLock.lock(); defer { bufferLock.unlock() }; return _silenceDetectionEnabled }
+        set { bufferLock.lock(); _silenceDetectionEnabled = newValue; bufferLock.unlock() }
+    }
 
     private var silenceStart: Date?
     private var silenceFired = false
-    /// Whether we are currently buffering PCM for STT (false in listening stage)
-    private var bufferingForSTT = false
+    /// Whether we are currently buffering PCM for STT (false in listening stage).
+    /// Read from audio tap thread, written from main — use lock for thread safety (C-2).
+    private var _bufferingForSTT = false
+    private var bufferingForSTT: Bool {
+        get { bufferLock.lock(); defer { bufferLock.unlock() }; return _bufferingForSTT }
+        set { bufferLock.lock(); _bufferingForSTT = newValue; bufferLock.unlock() }
+    }
 
     private var engine: AVAudioEngine?
     private var pcmBuffers: [AVAudioPCMBuffer] = []
@@ -46,11 +56,17 @@ class AudioRecorder: ObservableObject {
     /// Protected by bufferLock — accessed from audio tap thread and main thread.
     private var converter: AVAudioConverter?
     private let targetSampleRate: Double = 16000
-    private let smoothing: Float = 0.3
-    private let targetFormat = AVAudioFormat(commonFormat: .pcmFormatInt16,
-                                              sampleRate: 16000,
-                                              channels: 1,
-                                              interleaved: true)!
+    private let smoothing: Float = 0.15
+    // swiftlint:disable:next force_unwrapping — PCM Int16 16kHz mono is always supported
+    private let targetFormat: AVAudioFormat = {
+        guard let fmt = AVAudioFormat(commonFormat: .pcmFormatInt16,
+                                       sampleRate: 16000,
+                                       channels: 1,
+                                       interleaved: true) else {
+            fatalError("AVAudioFormat failed for PCM Int16 16kHz mono — unsupported platform")
+        }
+        return fmt
+    }()
 
     init(skipPermissionCheck: Bool = false) {
         if !skipPermissionCheck {
@@ -132,24 +148,31 @@ class AudioRecorder: ObservableObject {
     // MARK: - Ambient Noise Calibration
 
     /// Calibrate ambient noise floor by sampling RMS for a short duration.
-    func calibrateAmbient(duration: TimeInterval = 0.5, completion: @escaping () -> Void) {
+    /// Includes a warmup delay so the engine's audio tap has time to deliver real samples (Mi-7).
+    func calibrateAmbient(warmup: TimeInterval = 0.3, duration: TimeInterval = 0.5, completion: @escaping () -> Void) {
         dispatchPrecondition(condition: .onQueue(.main))
-        var samples: [Float] = []
-        let startTime = Date()
 
-        // Temporarily tap into audio levels
-        let timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] t in
-            guard let self else { t.invalidate(); return }
-            samples.append(self.audioLevel)
-            if Date().timeIntervalSince(startTime) >= duration {
-                t.invalidate()
-                let avg = samples.isEmpty ? Float(0.01) : samples.reduce(0, +) / Float(samples.count)
-                self.ambientNoiseFloor = max(avg, 0.005) // floor to avoid zero
-                print("[AudioRecorder] Ambient calibrated: \(self.ambientNoiseFloor)")
-                completion()
+        // Wait for engine warmup before sampling (Mi-7: first samples may be 0.0)
+        DispatchQueue.main.asyncAfter(deadline: .now() + warmup) { [weak self] in
+            guard let self else { return }
+            var samples: [Float] = []
+            let startTime = Date()
+
+            let timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] t in
+                guard let self else { t.invalidate(); return }
+                samples.append(self.safeRawRMS)
+                if Date().timeIntervalSince(startTime) >= duration {
+                    t.invalidate()
+                    // Filter out zero samples from engine startup
+                    let nonZero = samples.filter { $0 > 0 }
+                    let avg = nonZero.isEmpty ? Float(0.01) : nonZero.reduce(0, +) / Float(nonZero.count)
+                    self.ambientNoiseFloor = max(avg, 0.005)
+                    // Ambient calibration logged via os_log in DictationManager
+                    completion()
+                }
             }
+            RunLoop.main.add(timer, forMode: .common)
         }
-        RunLoop.main.add(timer, forMode: .common)
     }
 
     // MARK: - Recording (must be called from main thread)
@@ -173,7 +196,6 @@ class AudioRecorder: ObservableObject {
         let hwFormat = inputNode.outputFormat(forBus: 0)
 
         guard let conv = AVAudioConverter(from: hwFormat, to: targetFormat) else {
-            print("[AudioRecorder] Failed to create converter from \(hwFormat) to \(targetFormat)")
             state = .idle
             return
         }
@@ -182,7 +204,7 @@ class AudioRecorder: ObservableObject {
         pcmBuffers = []
         bufferLock.unlock()
 
-        let bufferSize: AVAudioFrameCount = 1024
+        let bufferSize: AVAudioFrameCount = 512
         inputNode.installTap(onBus: 0, bufferSize: bufferSize, format: hwFormat) { [weak self] buffer, _ in
             guard let self else { return }
 
@@ -213,7 +235,6 @@ class AudioRecorder: ObservableObject {
         do {
             try engine.start()
         } catch {
-            print("[AudioRecorder] Engine start failed: \(error)")
             cleanup()
         }
     }
@@ -266,10 +287,12 @@ class AudioRecorder: ObservableObject {
     // MARK: - Silence Detection
 
     /// Called on main thread from audio tap. Tracks silence duration and fires callback.
+    /// Uses raw (unscaled) RMS for consistent threshold behavior across microphones (#1).
     private func updateSilenceState(rms: Float) {
         dispatchPrecondition(condition: .onQueue(.main))
         let threshold = ambientNoiseFloor * speechThresholdMultiplier
-        let nowSilent = rms < threshold
+        // Use thread-safe accessor — rawRMS is written on CoreAudio tap thread (C-1 / M-4)
+        let nowSilent = safeRawRMS < threshold
 
         isSilent = nowSilent
 
@@ -299,6 +322,17 @@ class AudioRecorder: ObservableObject {
 
     // MARK: - Audio Processing
 
+    /// Raw RMS (unscaled). Protected by `bufferLock` — written on CoreAudio tap thread,
+    /// read on main thread. Use `safeRawRMS` for all cross-thread reads (C-1).
+    private var rawRMS: Float = 0
+
+    /// Thread-safe read of `rawRMS` under `bufferLock` (C-1 / M-4).
+    var safeRawRMS: Float {
+        bufferLock.lock()
+        defer { bufferLock.unlock() }
+        return rawRMS
+    }
+
     private func computeRMS(buffer: AVAudioPCMBuffer) -> Float {
         guard let channelData = buffer.floatChannelData else { return 0 }
         let count = Int(buffer.frameLength)
@@ -306,7 +340,12 @@ class AudioRecorder: ObservableObject {
         let data = UnsafeBufferPointer(start: channelData[0], count: count)
         let sumSq = data.reduce(Float(0)) { $0 + $1 * $1 }
         let rms = sqrt(sumSq / Float(count))
-        return min(rms * 50.0, 1.0)
+        // Protect write: called from CoreAudio tap thread (C-1)
+        bufferLock.lock()
+        rawRMS = rms
+        bufferLock.unlock()
+        // Scale for UI display only (0–1 range for waveform)
+        return min(rms * 80.0, 1.0)
     }
 
     private func convert(buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
@@ -314,9 +353,10 @@ class AudioRecorder: ObservableObject {
         let conv = converter
         bufferLock.unlock()
         guard let conv else { return nil }
+        // Guard against partial buffers from Bluetooth route changes (#2)
+        guard buffer.frameLength >= 16 else { return nil }
         let ratio = targetSampleRate / buffer.format.sampleRate
-        let outputFrames = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 32
-        guard outputFrames > 0 else { return nil }
+        let outputFrames = max(1, AVAudioFrameCount(Double(buffer.frameLength) * ratio)) + 32
 
         guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: outputFrames) else {
             return nil
@@ -334,8 +374,7 @@ class AudioRecorder: ObservableObject {
             return buffer
         }
 
-        if let error {
-            print("[AudioRecorder] Conversion error: \(error)")
+        if error != nil {
             return nil
         }
         return outputBuffer.frameLength > 0 ? outputBuffer : nil
@@ -351,9 +390,16 @@ class AudioRecorder: ObservableObject {
 
         let bytesPerSample = 2
         let numChannels = 1
-        let dataSize = totalFrames * bytesPerSample * numChannels
+        var dataSize = totalFrames * bytesPerSample * numChannels
 
-        var wav = Data()
+        // Guard against UInt32 overflow (~24min at 16kHz mono 16-bit) (Mi-4)
+        if dataSize > Int(UInt32.max) - 36 {
+            // WAV too large — truncating to UInt32 max
+            dataSize = Int(UInt32.max) - 36
+        }
+
+        // Pre-allocate to avoid O(n log n) reallocation cost (#20)
+        var wav = Data(capacity: 44 + dataSize)
 
         wav.append(contentsOf: [UInt8]("RIFF".utf8))
         wav.append(uint32LE: UInt32(36 + dataSize))
@@ -371,14 +417,21 @@ class AudioRecorder: ObservableObject {
         wav.append(contentsOf: [UInt8]("data".utf8))
         wav.append(uint32LE: UInt32(dataSize))
 
+        var written = 0
         for buffer in buffers {
             guard let int16Data = buffer.int16ChannelData else { continue }
             let count = Int(buffer.frameLength)
             guard count > 0 else { continue }
+            let byteCount = count * bytesPerSample
+            // Stop at declared dataSize to keep header consistent (#6)
+            let remaining = dataSize - written
+            guard remaining > 0 else { break }
+            let toWrite = min(byteCount, remaining)
             let ptr = UnsafeBufferPointer(start: int16Data[0], count: count)
             guard let base = ptr.baseAddress else { continue }
             wav.append(UnsafeBufferPointer(start: UnsafeRawPointer(base).assumingMemoryBound(to: UInt8.self),
-                                            count: count * bytesPerSample))
+                                            count: toWrite))
+            written += toWrite
         }
 
         return wav

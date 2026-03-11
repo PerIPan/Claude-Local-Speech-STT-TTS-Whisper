@@ -16,9 +16,9 @@ enum InteractionMode: String, CaseIterable {
 
     var description: String {
         switch self {
-        case .pressToTalk: return "Press key to start, press again to stop"
-        case .holdToTalk: return "Hold key to record, release to transcribe"
-        case .handsFree: return "Say \"initiate\" to record, 3s silence to transcribe"
+        case .pressToTalk: return "press key to start, press again to stop"
+        case .holdToTalk: return "hold key to record, release to transcribe"
+        case .handsFree: return "say \"initiate\" to record, \"hold on\" to interrupt, simply keep silent to transcribe"
         }
     }
 
@@ -30,7 +30,7 @@ enum InteractionMode: String, CaseIterable {
         guard let raw = try? String(contentsOf: Paths.interactionMode, encoding: .utf8)
             .trimmingCharacters(in: .whitespacesAndNewlines),
               let mode = InteractionMode(rawValue: raw) else {
-            return .pressToTalk
+            return .holdToTalk
         }
         return mode
     }

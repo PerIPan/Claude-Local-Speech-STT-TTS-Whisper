@@ -47,6 +47,9 @@ enum Paths {
     /// Auto-focus app file (unified_server.py reads target app name from this)
     static let autoFocusApp = appSupport.appendingPathComponent("auto_focus_app")
 
+    /// Auto-focus "with return" flag — return to origin app after text insertion
+    static let autoFocusReturn = appSupport.appendingPathComponent("auto_focus_return")
+
     /// STT language file (unified_server.py reads default language from this)
     static let sttLanguage = appSupport.appendingPathComponent("stt_language")
 
@@ -64,6 +67,9 @@ enum Paths {
 
     /// Silence threshold for hands-free mode (seconds, default 3)
     static let silenceThreshold = appSupport.appendingPathComponent("silence_threshold")
+
+    /// TTS volume file (tts-hook.sh reads volume level from this)
+    static let ttsVolume = appSupport.appendingPathComponent("tts_volume")
 
     /// Selected AI platform (claudeCode, codexCLI)
     static let selectedPlatform = appSupport.appendingPathComponent("selected_platform")

@@ -111,7 +111,9 @@ class ServerManager: ObservableObject {
     // MARK: - Unified Server
 
     private func startServer() {
-        guard process == nil || process?.isRunning != true else { return }
+        // Clear stale process ref if it exited (L-5: prevents orphaned second Process)
+        if let p = process, !p.isRunning { process = nil }
+        guard process == nil else { return }
 
         status = .starting
 
@@ -231,7 +233,8 @@ class ServerManager: ObservableObject {
 
     // MARK: - Process Management
 
-    private static func terminateProcess(_ process: Process?, pidFile: URL) {
+    /// Waits for process to exit after terminate(). Must NOT be called on main thread (T-1).
+    private static func waitForTermination(_ process: Process?, pidFile: URL) {
         guard let proc = process, proc.isRunning else {
             try? FileManager.default.removeItem(at: pidFile)
             return
@@ -263,10 +266,11 @@ class ServerManager: ObservableObject {
         process = nil
         proc.terminate()
         if synchronous {
-            Self.terminateProcess(proc, pidFile: pidFile)
+            // Run termination inline on current thread (H-5: avoid semaphore blocking main thread)
+            Self.waitForTermination(proc, pidFile: pidFile)
         } else {
             DispatchQueue.global(qos: .utility).async {
-                Self.terminateProcess(proc, pidFile: pidFile)
+                Self.waitForTermination(proc, pidFile: pidFile)
             }
         }
     }

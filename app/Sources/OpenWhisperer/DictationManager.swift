@@ -20,6 +20,7 @@ class DictationManager: ObservableObject {
         didSet {
             if interactionMode != oldValue {
                 handleModeChange(from: oldValue, to: interactionMode)
+                TranscriptionOverlay.shared.interactionMode = interactionMode
             }
         }
     }
@@ -34,9 +35,13 @@ class DictationManager: ObservableObject {
     /// The PID of the app that was frontmost when the user pressed the hotkey.
     /// Captured on the main thread at press-time, before any focus shifts.
     private var targetPID: pid_t = 0
+    /// The PID of the app the user was in before auto-focus switched away.
+    /// Used by "with return" to re-activate the origin app after text insertion.
+    private var originPID: pid_t = 0
 
     private var recorderSink: AnyCancellable?
     private var uploadWatchdog: DispatchWorkItem?
+    private var activeUploadTask: URLSessionDataTask?
     /// Monitors the TTS lock file for barge-in / mic muting
     private var ttsLockMonitor: DispatchSourceFileSystemObject?
     private var ttsLockTimer: Timer?
@@ -91,7 +96,7 @@ class DictationManager: ObservableObject {
         if let front = NSWorkspace.shared.frontmostApplication,
            front.bundleIdentifier != Bundle.main.bundleIdentifier {
             targetPID = front.processIdentifier
-            print("[DictationManager] Captured target PID \(targetPID) (\(front.localizedName ?? "?"))")
+            os_log(.default, log: dictLog, "Captured target PID %d (%{public}@)", targetPID, front.localizedName ?? "?")
         }
     }
 
@@ -115,7 +120,9 @@ class DictationManager: ObservableObject {
             activateHandsFree()
         case .pressToTalk, .holdToTalk:
             // Ensure recorder is idle if switching away from hands-free
-            if recorder.state == .listening || recorder.state == .recording {
+            if recorder.state == .listening || recorder.state == .recording || recorder.state == .uploading {
+                uploadWatchdog?.cancel()
+                uploadWatchdog = nil
                 recorder.stopEngine()
             }
         }
@@ -140,7 +147,7 @@ class DictationManager: ObservableObject {
             guard !isTyping else { return }
             killTTS()
             playClick()
-            captureTargetApp()
+            // captureTargetApp() already called by HotkeyManager.onKeyDown (L-4)
             recorder.startRecording()
         case .recording:
             playClick()
@@ -196,10 +203,12 @@ class DictationManager: ObservableObject {
 
     private func deactivateHandsFree() {
         dispatchPrecondition(condition: .onQueue(.main))
+        uploadWatchdog?.cancel()
+        uploadWatchdog = nil
         recorder.silenceDetectionEnabled = false
         keywordDetector.stop()
         stopTTSLockMonitoring()
-        if recorder.state == .listening || recorder.state == .recording {
+        if recorder.state == .listening || recorder.state == .recording || recorder.state == .uploading {
             recorder.stopEngine()
         }
         isCalibrating = false
@@ -212,6 +221,9 @@ class DictationManager: ObservableObject {
         guard interactionMode == .handsFree else { return }
         guard recorder.state == .listening else { return }
         os_log(.default, log: dictLog, "Keyword 'initiate' detected, starting STT recording")
+        // Stop keyword detector — it no longer auto-restarts on initiate (#5).
+        // It will be restarted after the STT cycle completes (resumeListening path).
+        keywordDetector.stop()
         playClick()
         captureTargetApp()
         recorder.startBuffering()
@@ -248,9 +260,13 @@ class DictationManager: ObservableObject {
 
         os_log(.default, log: dictLog, "Hands-free WAV: %d bytes", wavData.count)
 
+        uploadWatchdog?.cancel()
         let watchdog = DispatchWorkItem { [weak self] in
             guard let self, self.recorder.state == .uploading else { return }
-            print("[DictationManager] Watchdog: hands-free upload exceeded 35s")
+            os_log(.default, log: dictLog, "Watchdog: hands-free upload exceeded 35s")
+            self.activeUploadTask?.cancel()
+            self.activeUploadTask = nil
+            self.isTyping = false
             self.recorder.resumeListening()
             self.keywordDetector.start()
             self.error = "Transcription timed out"
@@ -258,7 +274,7 @@ class DictationManager: ObservableObject {
         uploadWatchdog = watchdog
         DispatchQueue.main.asyncAfter(deadline: .now() + 35, execute: watchdog)
 
-        uploadToWhisper(wavData: wavData, language: language, port: currentPort) { [weak self] result in
+        activeUploadTask = uploadToWhisper(wavData: wavData, language: language, port: currentPort, handsFree: true) { [weak self] result in
             guard let self else { return }
             DispatchQueue.main.async {
                 self.uploadWatchdog?.cancel()
@@ -272,7 +288,7 @@ class DictationManager: ObservableObject {
                         self.lastTranscription = trimmed
                         self.error = nil
                         self.isTyping = true
-                        self.insertText(trimmed, intoPID: pid) { [weak self] in
+                        self.insertText(trimmed, intoPID: pid, forceSubmit: true) { [weak self] in
                             guard let self else { return }
                             self.isTyping = false
                             // Resume listening after typing completes
@@ -299,11 +315,14 @@ class DictationManager: ObservableObject {
     private func handleBargeIn() {
         dispatchPrecondition(condition: .onQueue(.main))
         guard interactionMode == .handsFree, ttsPlaying else { return }
+        // Only barge-in when recorder is in a state that can transition to recording (L-1)
+        guard recorder.state == .listening || recorder.state == .idle else { return }
         os_log(.default, log: dictLog, "Barge-in: 'hold on' detected, killing TTS")
+        // Stop keyword detector before recording — matches handleInitiateKeyword pattern
+        keywordDetector.stop()
         killTTS()
         playClick()
         captureTargetApp()
-        // Transition directly to recording
         recorder.startBuffering()
     }
 
@@ -311,7 +330,8 @@ class DictationManager: ObservableObject {
 
     private func startTTSLockMonitoring() {
         // Poll for lock file every 0.5s (simpler and more reliable than DispatchSource)
-        ttsLockTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+        // Use .common RunLoop mode so timer fires even when menubar popover is open (L-6)
+        let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
             guard let self else { return }
             let lockPath = Paths.appSupport.appendingPathComponent("tts_playing.lock").path
             let playing = FileManager.default.fileExists(atPath: lockPath)
@@ -320,6 +340,8 @@ class DictationManager: ObservableObject {
                 self.handleTTSStateChange(playing: playing)
             }
         }
+        RunLoop.main.add(timer, forMode: .common)
+        ttsLockTimer = timer
     }
 
     private func stopTTSLockMonitoring() {
@@ -339,7 +361,10 @@ class DictationManager: ObservableObject {
                 // Discard any buffered audio during TTS transition
                 recorder.resumeListening()
             }
-            // Keyword detector stays active for "hold on" barge-in
+            // Ensure keyword detector is running for "hold on" barge-in (L-2)
+            if !keywordDetector.isRunning {
+                keywordDetector.start()
+            }
         } else {
             // TTS finished — resume listening for "initiate"
             os_log(.default, log: dictLog, "TTS ended — resuming keyword listening")
@@ -359,10 +384,14 @@ class DictationManager: ObservableObject {
         let currentPort = port
         let pid = targetPID  // capture on main thread right now
 
-        // Set up watchdog on main thread BEFORE background work starts (fixes C-1 race)
+        // Cancel any previous watchdog before creating a new one (C-5)
+        uploadWatchdog?.cancel()
         let watchdog = DispatchWorkItem { [weak self] in
             guard let self, self.recorder.state == .uploading else { return }
-            print("[DictationManager] Watchdog: upload exceeded 35s, forcing reset")
+            os_log(.default, log: dictLog, "Watchdog: upload exceeded 35s, forcing reset")
+            self.activeUploadTask?.cancel()
+            self.activeUploadTask = nil
+            self.isTyping = false  // Clear isTyping so dictation isn't bricked (C-1)
             self.recorder.reset()
             self.error = "Transcription timed out"
         }
@@ -407,8 +436,8 @@ class DictationManager: ObservableObject {
                         self.lastTranscription = trimmed
                         self.error = nil
                         self.isTyping = true
-                        self.insertText(trimmed, intoPID: pid) {
-                            self.isTyping = false
+                        self.insertText(trimmed, intoPID: pid) { [weak self] in
+                            self?.isTyping = false
                         }
                     case .failure(let err):
                         os_log(.default, log: dictLog, "Upload failed: %{public}@", err.localizedDescription)
@@ -451,13 +480,19 @@ class DictationManager: ObservableObject {
 
     // MARK: - Upload to Whisper
 
+    @discardableResult
     private func uploadToWhisper(
         wavData: Data,
         language: String?,
         port: Int,
+        handsFree: Bool = false,
         completion: @escaping (Result<String, Error>) -> Void
-    ) {
-        let url = URL(string: "http://localhost:\(port)/v1/audio/transcriptions")!
+    ) -> URLSessionDataTask? {
+        guard let url = URL(string: "http://localhost:\(port)/v1/audio/transcriptions") else {
+            completion(.failure(NSError(domain: "DictationManager", code: -1,
+                                       userInfo: [NSLocalizedDescriptionKey: "Invalid server URL"])))
+            return nil
+        }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.timeoutInterval = 30
@@ -475,6 +510,9 @@ class DictationManager: ObservableObject {
             body.appendField(name: "language", value: lang, boundary: boundary)
         }
 
+        if handsFree {
+            body.appendField(name: "hands_free", value: "true", boundary: boundary)
+        }
         body.appendField(name: "response_format", value: "json", boundary: boundary)
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
         body.append(
@@ -487,7 +525,7 @@ class DictationManager: ObservableObject {
         body.append("--\(boundary)--\r\n".data(using: .utf8)!)
         request.httpBody = body
 
-        URLSession.shared.dataTask(with: request) { data, response, error in
+        let task = URLSession.shared.dataTask(with: request) { data, response, error in
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
             os_log(.default, log: dictLog, "Upload response: HTTP %d, data=%db, error=%{public}@",
                    statusCode, data?.count ?? 0, error?.localizedDescription ?? "nil")
@@ -516,22 +554,62 @@ class DictationManager: ObservableObject {
                 return
             }
             completion(.success(text))
-        }.resume()
+        }
+        task.resume()
+        return task
     }
 
     // MARK: - Insert Text (main thread orchestrator)
 
     /// Inserts `text` into the application identified by `pid`.
     /// Must be called on the main thread. `completion` is called on the main thread.
-    private func insertText(_ text: String, intoPID pid: pid_t, completion: @escaping () -> Void) {
+    private func insertText(_ text: String, intoPID pid: pid_t, forceSubmit: Bool = false, completion: @escaping () -> Void) {
         dispatchPrecondition(condition: .onQueue(.main))
 
         // Resolve which app to focus: Auto-Focus target overrides captured PID
         let focusPID = resolveAutoFocusPID() ?? pid
         let targetPID = focusPID != 0 ? focusPID : pid
 
+        // Capture current frontmost app as origin (for "with return")
+        let currentFront = NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0
+        let shouldReturn = autoFocusReturnEnabled && targetPID != 0 && currentFront != targetPID && currentFront != 0
+        let returnPID = shouldReturn ? currentFront : 0
+
+        // Wrap completion: auto-submit (Enter) first, then return to origin app
+        let autoSubmitEnabled = FileManager.default.fileExists(atPath: Paths.autoSubmitFlag.path)
+        let wrappedCompletion: () -> Void = {
+            let returnBlock = {
+                if returnPID != 0, let originApp = NSRunningApplication(processIdentifier: returnPID) {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                        originApp.activate()
+                        os_log(.default, log: dictLog, "Returning to origin app: %{public}@ (PID %d)",
+                               originApp.localizedName ?? "?", returnPID)
+                    }
+                }
+                completion()
+            }
+
+            if autoSubmitEnabled || forceSubmit {
+                // Press Enter after text insertion, before returning
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    if let enterDown = CGEvent(keyboardEventSource: nil, virtualKey: 0x24, keyDown: true),
+                       let enterUp = CGEvent(keyboardEventSource: nil, virtualKey: 0x24, keyDown: false) {
+                        enterDown.post(tap: .cgSessionEventTap)
+                        enterUp.post(tap: .cgSessionEventTap)
+                        os_log(.default, log: dictLog, "Auto-submit: Enter pressed")
+                    }
+                    // Delay return to let Enter propagate
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        returnBlock()
+                    }
+                }
+            } else {
+                returnBlock()
+            }
+        }
+
         // Check if target app is already frontmost
-        let alreadyFocused = NSWorkspace.shared.frontmostApplication?.processIdentifier == targetPID
+        let alreadyFocused = currentFront == targetPID
 
         // Activate the target app BEFORE any text insertion (native activation)
         if !alreadyFocused, targetPID != 0, let app = NSRunningApplication(processIdentifier: targetPID) {
@@ -539,12 +617,17 @@ class DictationManager: ObservableObject {
             os_log(.default, log: dictLog, "Activating app: %{public}@ (PID %d)", app.localizedName ?? "?", targetPID)
             // Delay to let activation complete before inserting text
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
-                self?.doInsertText(text, pid: targetPID, completion: completion)
+                self?.doInsertText(text, pid: targetPID, completion: wrappedCompletion)
             }
             return
         }
 
-        doInsertText(text, pid: targetPID, completion: completion)
+        doInsertText(text, pid: targetPID, completion: wrappedCompletion)
+    }
+
+    /// Whether "with return" is enabled (return to origin app after auto-focus insertion).
+    private var autoFocusReturnEnabled: Bool {
+        FileManager.default.fileExists(atPath: Paths.autoFocusReturn.path)
     }
 
     /// Performs the actual text insertion after the target app is focused.
@@ -553,33 +636,16 @@ class DictationManager: ObservableObject {
 
         // Tier 1: AXUIElement — works for native AppKit apps
         if pid != 0 && insertViaAccessibility(text, pid: pid) {
-            print("[DictationManager] Inserted via AXUIElement")
+            os_log(.default, log: dictLog, "Inserted via AXUIElement for PID %d", pid)
             completion()
             return
         }
 
-        os_log(.default, log: dictLog, "AX insert failed, falling back to clipboard + CGEvent Cmd+V")
+        os_log(.default, log: dictLog, "AX insert failed, falling back to CGEvent Unicode typing")
 
-        // Set clipboard
-        let pasteboard = NSPasteboard.general
-        let previousContents = pasteboard.string(forType: .string)
-        pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
-
-        // Tier 2: CGEvent Cmd+V paste
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-            guard let self else { completion(); return }
-            self.postCmdV()
-
-            // Restore clipboard after paste completes, then signal completion
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                if let prev = previousContents {
-                    let pb = NSPasteboard.general
-                    pb.clearContents()
-                    pb.setString(prev, forType: .string)
-                }
-                completion()
-            }
+        // Tier 2: CGEvent keyboardSetUnicodeString — types text without touching clipboard
+        typeViaUnicodeEvents(text) {
+            completion()
         }
     }
 
@@ -596,8 +662,8 @@ class DictationManager: ObservableObject {
         if let app = apps.first(where: { $0.localizedName == name }) {
             return app.processIdentifier
         }
-        // Try matching by bundle name (e.g. "Code" matches "Visual Studio Code")
-        if let app = apps.first(where: { ($0.localizedName ?? "").contains(name) }) {
+        // Try matching by bundle name prefix (e.g. "Code" matches "Code - Insiders") (#17)
+        if let app = apps.first(where: { ($0.localizedName ?? "").hasPrefix(name) }) {
             return app.processIdentifier
         }
         return nil
@@ -615,7 +681,7 @@ class DictationManager: ObservableObject {
         // Pass false so we don't trigger the system prompt here (should already be granted).
         let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: false]
         guard AXIsProcessTrustedWithOptions(opts as CFDictionary) else {
-            print("[DictationManager] AX: process not trusted (permission not granted)")
+            os_log(.default, log: dictLog, "AX: process not trusted (permission not granted)")
             return false
         }
 
@@ -629,15 +695,13 @@ class DictationManager: ObservableObject {
             &focusedValue
         )
         guard focusErr == .success, let focused = focusedValue else {
-            print(
-                "[DictationManager] AX: no focused element for PID \(pid) (err=\(focusErr.rawValue))"
-            )
+            os_log(.default, log: dictLog, "AX: no focused element for PID %d (err=%d)", pid, focusErr.rawValue)
             return false
         }
         // CFTypeID check: AXUIElementCopyAttributeValue returns AnyObject (CFTypeRef).
         // Direct `as? AXUIElement` always succeeds for CF types, so compare CFTypeIDs.
         guard CFGetTypeID(focused as CFTypeRef) == AXUIElementGetTypeID() else {
-            print("[DictationManager] AX: focused element is not AXUIElement for PID \(pid)")
+            os_log(.default, log: dictLog, "AX: focused element is not AXUIElement for PID %d", pid)
             return false
         }
         let element = focused as! AXUIElement
@@ -658,14 +722,12 @@ class DictationManager: ObservableObject {
                 text as CFString
             )
             if setErr == .success {
-                print("[DictationManager] AX: StrategyA success for PID \(pid)")
+                os_log(.default, log: dictLog, "AX: StrategyA success for PID %d", pid)
                 return true
             }
-            print("[DictationManager] AX: StrategyA set failed (err=\(setErr.rawValue))")
+            os_log(.default, log: dictLog, "AX: StrategyA set failed (err=%d)", setErr.rawValue)
         } else {
-            print(
-                "[DictationManager] AX: StrategyA not settable (settableErr=\(settableErr.rawValue), settable=\(isSettable.boolValue))"
-            )
+            os_log(.default, log: dictLog, "AX: StrategyA not settable (settableErr=%d, settable=%d)", settableErr.rawValue, isSettable.boolValue ? 1 : 0)
         }
 
         // Strategy B: kAXValueAttribute — works for some single-line fields that don't
@@ -721,49 +783,72 @@ class DictationManager: ObservableObject {
                         axRange
                     )
                 }
-                print("[DictationManager] AX: StrategyB success for PID \(pid)")
+                os_log(.default, log: dictLog, "AX: StrategyB success for PID %d", pid)
                 return true
             }
-            print("[DictationManager] AX: StrategyB set failed (err=\(setErr.rawValue))")
+            os_log(.default, log: dictLog, "AX: StrategyB set failed (err=%d)", setErr.rawValue)
         }
 
         return false
     }
 
-    // MARK: - Cmd+V Paste via CGEvent
+    // MARK: - CGEvent Unicode Typing
 
-    /// Posts Cmd+V via CGEvent. Uses nil source for max compatibility.
-    private func postCmdV() {
-        guard
-            let keyDown = CGEvent(keyboardEventSource: nil, virtualKey: 0x09, keyDown: true),
-            let keyUp = CGEvent(keyboardEventSource: nil, virtualKey: 0x09, keyDown: false)
-        else {
-            self.error = "Paste failed — grant Accessibility permission in System Settings"
-            diagLog("CGEvent creation failed")
-            return
+    /// Types `text` by posting CGEvent keystrokes with `keyboardSetUnicodeString`.
+    /// No clipboard involvement — each chunk is sent as a key-down/key-up pair.
+    /// macOS limit is ~20 UTF-16 code units per event; we use chunks of 16 for safety.
+    private func typeViaUnicodeEvents(_ text: String, completion: @escaping () -> Void) {
+        let utf16 = Array(text.utf16)
+        let chunkSize = 16
+        let chunks = stride(from: 0, to: utf16.count, by: chunkSize).map {
+            Array(utf16[$0..<min($0 + chunkSize, utf16.count)])
         }
 
-        keyDown.flags = .maskCommand
-        keyUp.flags = .maskCommand
+        func typeChunk(at index: Int) {
+            guard index < chunks.count else {
+                diagLog("CGEvent Unicode typing done (\(utf16.count) UTF-16 units)")
+                completion()
+                return
+            }
 
-        keyDown.post(tap: .cgSessionEventTap)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) { [weak self] in
+            var chunk = chunks[index]
+            guard
+                let keyDown = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true),
+                let keyUp = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false)
+            else {
+                self.error = "Typing failed — grant Accessibility permission in System Settings"
+                diagLog("CGEvent creation failed at chunk \(index)")
+                completion()
+                return
+            }
+
+            keyDown.keyboardSetUnicodeString(stringLength: chunk.count, unicodeString: &chunk)
+            keyUp.keyboardSetUnicodeString(stringLength: chunk.count, unicodeString: &chunk)
+
+            keyDown.post(tap: .cgSessionEventTap)
             keyUp.post(tap: .cgSessionEventTap)
-            self?.diagLog("CGEvent Cmd+V posted")
+
+            // Small delay between chunks to let the target app process input (#22)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.003) {
+                typeChunk(at: index + 1)
+            }
         }
+
+        typeChunk(at: 0)
     }
 
     // MARK: - Diagnostic Log
 
-    private static let diagFormatter: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        return f
-    }()
+    private static let diagQueue = DispatchQueue(label: "com.openwhisperer.diaglog", qos: .utility)
+    /// Formatter lives on diagQueue — only accessed there to avoid thread-safety issues (M-8)
+    private static let diagFormatter = ISO8601DateFormatter()
 
     private func diagLog(_ msg: String) {
-        let diagPath = Paths.appSupport.appendingPathComponent("paste_debug.log")
-        let timestamp = Self.diagFormatter.string(from: Date())
-        if let data = "[\(timestamp)] \(msg)\n".data(using: .utf8) {
+        let date = Date()
+        Self.diagQueue.async {
+            let timestamp = Self.diagFormatter.string(from: date)
+            guard let data = "[\(timestamp)] \(msg)\n".data(using: .utf8) else { return }
+            let diagPath = Paths.appSupport.appendingPathComponent("paste_debug.log")
             if FileManager.default.fileExists(atPath: diagPath.path) {
                 if let fh = try? FileHandle(forWritingTo: diagPath) {
                     fh.seekToEndOfFile()
