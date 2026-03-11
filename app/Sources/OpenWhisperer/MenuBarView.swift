@@ -10,8 +10,8 @@ private enum OWColor {
     static let muted = Color.secondary
     /// Thin separator line
     static let divider = Color.primary.opacity(0.08)
-    /// Accent — light gray for interactive states (pickers, checkboxes)
-    static let accent = Color.secondary
+    /// Accent — gray for interactive states (pickers, checkboxes)
+    static let accent = Color.gray
     /// Inline tag pill background
     static let pillBackground = Color.primary.opacity(0.06)
 }
@@ -60,6 +60,7 @@ struct MenuBarView: View {
     @State private var selectedPlatform: Platform = .claudeCode
     @State private var hookApplied = false
     @State private var claudeMdApplied = false
+    @State private var superpowersApplied = false
     @State private var applyMessage = ""
     @State private var serverReachable = false
     @State private var launchAtLogin = false
@@ -116,6 +117,7 @@ struct MenuBarView: View {
         ("brief", "Brief"),
         ("natural", "Natural"),
         ("detailed", "Detailed"),
+        ("brainstorming", "Brainstorming"),
     ]
 
     private static let volumeLevels: [(id: String, label: String, value: String)] = [
@@ -175,8 +177,7 @@ struct MenuBarView: View {
         .padding(14)
         .font(OWFont.body())
         .frame(width: 310)
-        .tint(Color.secondary)
-        .accentColor(Color.secondary)
+        // Native AppKit controls replaced with custom OWMenuPicker/OWCheckbox
         .background(.ultraThinMaterial)
         .onAppear {
             selectedPlatform = Platform.load()
@@ -295,14 +296,14 @@ struct MenuBarView: View {
         OWCard {
             VStack(spacing: 0) {
                 ModernStatusRow(
-                    label: "Whisper STT",
+                    label: "Whisper Speech-to-Text",
                     subtitle: serverManager.sttModel,
                     port: "\(serverManager.port)",
                     status: serverManager.status
                 )
                 OWInternalDivider()
                 ModernStatusRow(
-                    label: "Kokoro TTS",
+                    label: "Kokoro Text-to-Speech",
                     subtitle: serverManager.ttsModel,
                     port: "\(serverManager.port)",
                     status: serverManager.status
@@ -320,13 +321,10 @@ struct MenuBarView: View {
 
                 // Mode dropdown
                 OWPickerRow(label: "Mode", labelWidth: 52) {
-                    Picker("", selection: $selectedMode) {
-                        ForEach(InteractionMode.allCases, id: \.rawValue) { mode in
-                            Text(mode.label).tag(mode)
-                        }
-                    }
-                    .labelsHidden()
-                    .font(OWFont.body(11))
+                    OWMenuPicker(
+                        selection: $selectedMode,
+                        options: InteractionMode.allCases.map { (id: $0, label: $0.label) }
+                    )
                     .frame(maxWidth: .infinity)
                 }
                 .onChange(of: selectedMode) { _, newValue in
@@ -368,12 +366,10 @@ struct MenuBarView: View {
                         Spacer()
 
                         if selectedMode != .handsFree {
-                            Picker("", selection: $selectedPTTKey) {
-                                ForEach(PTTKey.allCases, id: \.rawValue) { key in
-                                    Text(key.label).tag(key.rawValue)
-                                }
-                            }
-                            .labelsHidden()
+                            OWMenuPicker(
+                                selection: $selectedPTTKey,
+                                options: PTTKey.allCases.map { (id: $0.rawValue, label: $0.label) }
+                            )
                             .frame(width: 76)
                         }
                     }
@@ -395,13 +391,10 @@ struct MenuBarView: View {
                             Text("Silence")
                                 .font(OWFont.body(12))
                             Spacer()
-                            Picker("", selection: $silenceThreshold) {
-                                ForEach([3, 4, 5, 7, 10], id: \.self) { sec in
-                                    Text("\(sec)s").tag(sec)
-                                }
-                            }
-                            .labelsHidden()
-                            .pickerStyle(.menu)
+                            OWMenuPicker(
+                                selection: $silenceThreshold,
+                                options: [3, 4, 5, 7, 10, 20].map { (id: $0, label: "\($0)s") }
+                            )
                             .frame(width: 76)
                             .onChange(of: silenceThreshold) { _, newValue in
                                 let str = String(newValue)
@@ -440,16 +433,15 @@ struct MenuBarView: View {
                         Text("Transcription Overlay")
                             .font(OWFont.body(12))
                         Spacer()
-                        Picker("", selection: Binding(
-                            get: { overlay.isVisible ? "on" : "off" },
-                            set: { newValue in
-                                if newValue == "on" { overlay.show() } else { overlay.hide() }
-                            }
-                        )) {
-                            Text("ON").tag("on")
-                            Text("OFF").tag("off")
-                        }
-                        .labelsHidden()
+                        OWMenuPicker(
+                            selection: Binding(
+                                get: { overlay.isVisible ? "on" : "off" },
+                                set: { newValue in
+                                    if newValue == "on" { overlay.show() } else { overlay.hide() }
+                                }
+                            ),
+                            options: [(id: "on", label: "ON"), (id: "off", label: "OFF")]
+                        )
                         .frame(width: 76)
                     }
 
@@ -479,14 +471,8 @@ struct MenuBarView: View {
         } expandedContent: {
             VStack(alignment: .leading, spacing: 10) {
                 OWPickerRow(label: "Dictate", labelWidth: 52) {
-                    Picker("", selection: $selectedLanguage) {
-                        ForEach(Self.languages, id: \.id) { lang in
-                            Text(lang.label).tag(lang.id)
-                        }
-                    }
-                    .labelsHidden()
-                    .font(OWFont.body(11))
-                    .frame(maxWidth: .infinity)
+                    OWMenuPicker(selection: $selectedLanguage, options: Self.languages)
+                        .frame(maxWidth: .infinity)
                 }
                 .onChange(of: selectedLanguage) { _, newValue in
                     if newValue == "auto" {
@@ -499,14 +485,8 @@ struct MenuBarView: View {
                 OWInternalDivider()
 
                 OWPickerRow(label: "Voice", labelWidth: 52) {
-                    Picker("", selection: $selectedVoice) {
-                        ForEach(Self.voices, id: \.id) { voice in
-                            Text(voice.label).tag(voice.id)
-                        }
-                    }
-                    .labelsHidden()
-                    .font(OWFont.body(11))
-                    .frame(maxWidth: .infinity)
+                    OWMenuPicker(selection: $selectedVoice, options: Self.voices)
+                        .frame(maxWidth: .infinity)
                 }
                 .onChange(of: selectedVoice) { _, newValue in
                     try? newValue.write(to: Paths.ttsVoice, atomically: true, encoding: .utf8)
@@ -515,31 +495,24 @@ struct MenuBarView: View {
                 OWInternalDivider()
 
                 OWPickerRow(label: "Detail", labelWidth: 52) {
-                    Picker("", selection: $selectedDetail) {
-                        ForEach(Self.detailLevels, id: \.id) { level in
-                            Text(level.label).tag(level.id)
-                        }
-                    }
-                    .labelsHidden()
-                    .font(OWFont.body(11))
-                    .frame(maxWidth: .infinity)
+                    OWMenuPicker(selection: $selectedDetail, options: Self.detailLevels)
+                        .frame(maxWidth: .infinity)
                 }
                 .onChange(of: selectedDetail) { _, newValue in
                     try? newValue.write(to: Paths.voiceDetail, atomically: true, encoding: .utf8)
-                    claudeMdApplied = false
+                    // Auto-apply the new voice block immediately
+                    let result = ConfigManager.applyVoiceTag(for: selectedPlatform, forceUpdate: true)
+                    claudeMdApplied = result.success
+                    applyMessage = result.message
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 5) { applyMessage = "" }
+                    setupExpanded = true
                 }
 
                 OWInternalDivider()
 
                 OWPickerRow(label: "Volume", labelWidth: 52) {
-                    Picker("", selection: $selectedVolume) {
-                        ForEach(Self.volumeLevels, id: \.id) { level in
-                            Text(level.label).tag(level.id)
-                        }
-                    }
-                    .labelsHidden()
-                    .font(OWFont.body(11))
-                    .frame(maxWidth: .infinity)
+                    OWMenuPicker(selection: $selectedVolume, options: Self.volumeLevels.map { (id: $0.id, label: $0.label) })
+                        .frame(maxWidth: .infinity)
                 }
                 .onChange(of: selectedVolume) { _, newValue in
                     if let level = Self.volumeLevels.first(where: { $0.id == newValue }) {
@@ -566,13 +539,8 @@ struct MenuBarView: View {
                 OWCardHeader(title: "Automation", icon: "gearshape.2")
 
                 HStack(spacing: 20) {
-                    Toggle("auto-focus", isOn: $autoFocusEnabled)
-                        .font(OWFont.body(12))
-                        .toggleStyle(.checkbox)
-
-                    Toggle("auto-submit", isOn: $autoSubmit)
-                        .font(OWFont.body(12))
-                        .toggleStyle(.checkbox)
+                    OWCheckbox(label: "auto-focus", isOn: $autoFocusEnabled)
+                    OWCheckbox(label: "auto-submit", isOn: $autoSubmit)
                 }
                 .onChange(of: autoSubmit) { _, enabled in
                     if enabled {
@@ -600,13 +568,8 @@ struct MenuBarView: View {
                 if autoFocusEnabled {
                     OWInternalDivider()
 
-                    Picker("", selection: $focusSelection) {
-                        ForEach(Self.focusApps, id: \.id) { app in
-                            Text(app.label).tag(app.id)
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(maxWidth: .infinity)
+                    OWMenuPicker(selection: $focusSelection, options: Self.focusApps)
+                        .frame(maxWidth: .infinity)
                     .onChange(of: focusSelection) { _, newValue in
                         if newValue == "CUSTOM" {
                             focusAppName = customFocusApp
@@ -628,9 +591,7 @@ struct MenuBarView: View {
                             }
                     }
 
-                    Toggle("with return", isOn: $autoFocusReturn)
-                        .font(OWFont.body(11))
-                        .toggleStyle(.checkbox)
+                    OWCheckbox(label: "with return", isOn: $autoFocusReturn)
                         .onChange(of: autoFocusReturn) { _, enabled in
                             if enabled {
                                 try? "on".write(to: Paths.autoFocusReturn, atomically: true, encoding: .utf8)
@@ -639,14 +600,14 @@ struct MenuBarView: View {
                             }
                         }
 
-                    Text("Focus target app, insert text, return to previous")
+                    Text("focus target app, insert text, return to previous")
                         .font(OWFont.caption())
                         .foregroundColor(.secondary)
                 }
 
                 // Auto-submit hint
                 if autoSubmit {
-                    Text("Enter is auto-applied after text insertion")
+                    Text("enter is auto-applied after text insertion")
                         .font(OWFont.caption())
                         .foregroundColor(.secondary)
                 }
@@ -662,12 +623,10 @@ struct MenuBarView: View {
             icon: "hammer",
             expanded: $setupExpanded
         ) {
-            Picker("", selection: $selectedPlatform) {
-                ForEach(Platform.allCases, id: \.rawValue) { p in
-                    Text(p.label).tag(p)
-                }
-            }
-            .labelsHidden()
+            OWMenuPicker(
+                selection: $selectedPlatform,
+                options: Platform.allCases.map { (id: $0, label: $0.label) }
+            )
             .frame(width: 130)
             .onChange(of: selectedPlatform) { _, newValue in
                 newValue.save()
@@ -704,8 +663,8 @@ struct MenuBarView: View {
                     }
                     .buttonStyle(OWRowButtonStyle(tinted: hookApplied, urgent: !hookApplied))
                     .help(selectedPlatform == .claudeCode
-                        ? "Writes the TTS hook into ~/.claude/settings.json"
-                        : "Writes the notify hook into ~/.codex/config.toml")
+                        ? "writes the TTS hook into ~/.claude/settings.json"
+                        : "writes the notify hook into ~/.codex/config.toml")
                 }
 
                 // Voice Tag row — aligned label + info + apply
@@ -737,8 +696,40 @@ struct MenuBarView: View {
                     }
                     .buttonStyle(OWRowButtonStyle(tinted: claudeMdApplied, urgent: !claudeMdApplied))
                     .help(selectedPlatform == .claudeCode
-                        ? "Appends VOICE tag instructions to ~/.claude/CLAUDE.md"
-                        : "Appends VOICE tag instructions to ~/.codex/instructions.md")
+                        ? "appends VOICE tag instructions to ~/.claude/CLAUDE.md"
+                        : "appends VOICE tag instructions to ~/.codex/instructions.md")
+                }
+
+                // Superpowers row — Claude Code only
+                if selectedPlatform == .claudeCode {
+                    HStack(spacing: 6) {
+                        HStack(spacing: 4) {
+                            Text("Superpowers")
+                                .font(OWFont.body(11))
+                            Image(systemName: "info.circle")
+                                .font(.system(size: 10))
+                                .foregroundColor(.secondary)
+                        }
+                        .frame(width: 80, alignment: .leading)
+                        .contentShape(Rectangle())
+                        .onTapGesture { ConfigManager.showSuperpowersInstructions() }
+                        .help("obra/superpowers — agentic skills framework")
+
+                        Button(action: {
+                            let result = ConfigManager.applySuperpowers()
+                            superpowersApplied = ConfigManager.checkSuperpowersInstalled()
+                            applyMessage = result.message
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 5) { applyMessage = "" }
+                        }) {
+                            Label(
+                                superpowersApplied ? "Installed" : "Copy Install",
+                                systemImage: superpowersApplied ? "checkmark.circle.fill" : "doc.on.clipboard"
+                            )
+                            .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(OWRowButtonStyle(tinted: superpowersApplied, urgent: !superpowersApplied))
+                        .help("copies install command to clipboard")
+                    }
                 }
 
                 // Apply message feedback
@@ -753,8 +744,11 @@ struct MenuBarView: View {
 
                 // Diagnostics
                 VStack(alignment: .leading, spacing: 4) {
-                    ModernDiagnosticRow(label: "Hook configured", ok: hookApplied)
-                    ModernDiagnosticRow(label: "Voice tag active", ok: claudeMdApplied)
+                    ModernDiagnosticRow(label: "HOOK configured", ok: hookApplied)
+                    ModernDiagnosticRow(label: "VOICE tag active", ok: claudeMdApplied)
+                    if selectedPlatform == .claudeCode {
+                        ModernDiagnosticRow(label: "superpowers installed", ok: superpowersApplied)
+                    }
                 }
             }
         }
@@ -936,6 +930,7 @@ struct MenuBarView: View {
     private func refreshDiagnostics() {
         hookApplied = ConfigManager.checkHookConfigured(for: selectedPlatform)
         claudeMdApplied = ConfigManager.checkVoiceTagConfigured(for: selectedPlatform)
+        superpowersApplied = ConfigManager.checkSuperpowersInstalled()
         ConfigManager.testTTS(port: serverManager.port) { ok in
             DispatchQueue.main.async { serverReachable = ok }
         }
@@ -1093,6 +1088,94 @@ struct OWInternalDivider: View {
         Rectangle()
             .fill(Color.primary.opacity(0.07))
             .frame(height: 0.5)
+    }
+}
+
+// MARK: - OWMenuPicker (custom SwiftUI dropdown — avoids dark AppKit NSPopUpButton)
+
+struct OWMenuPicker<T: Hashable>: View {
+    @Binding var selection: T
+    let options: [(id: T, label: String)]
+
+    var body: some View {
+        Menu {
+            ForEach(options, id: \.id) { option in
+                Button {
+                    selection = option.id
+                } label: {
+                    if option.id == selection {
+                        Label(option.label, systemImage: "checkmark")
+                    } else {
+                        Text(option.label)
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Text(currentLabel)
+                    .font(OWFont.body(11))
+                    .foregroundColor(.primary)
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 8, weight: .medium))
+                    .foregroundColor(Color.primary.opacity(0.35))
+            }
+            .padding(.horizontal, 7)
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(Color.primary.opacity(0.04))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 5, style: .continuous)
+                            .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5)
+                    )
+            )
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+    }
+
+    private var currentLabel: String {
+        options.first(where: { $0.id == selection })?.label ?? ""
+    }
+}
+
+// MARK: - OWCheckbox (custom SwiftUI checkbox — avoids dark AppKit NSButton)
+
+struct OWCheckbox: View {
+    let label: String
+    @Binding var isOn: Bool
+    var tint: Color = Color.primary.opacity(0.40)
+
+    var body: some View {
+        Button {
+            isOn.toggle()
+        } label: {
+            HStack(spacing: 5) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 3, style: .continuous)
+                        .fill(isOn ? tint : Color.clear)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                .strokeBorder(
+                                    isOn ? tint : Color.primary.opacity(0.25),
+                                    lineWidth: 1
+                                )
+                        )
+                        .frame(width: 13, height: 13)
+                    if isOn {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundColor(.white)
+                    }
+                }
+                .animation(.easeInOut(duration: 0.12), value: isOn)
+                Text(label)
+                    .font(OWFont.body(12))
+                    .foregroundColor(.primary)
+            }
+        }
+        .buttonStyle(.plain)
     }
 }
 

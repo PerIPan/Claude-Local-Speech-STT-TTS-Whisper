@@ -159,6 +159,49 @@ enum ConfigManager {
         }
     }
 
+    // MARK: - Superpowers (obra/superpowers plugin)
+
+    static func showSuperpowersInstructions() {
+        let window = InstructionWindow(
+            title: "Superpowers — obra/superpowers",
+            instructions: """
+            Superpowers is an agentic skills framework that
+            gives your coding agent a structured workflow:
+
+            • Spec-first design before coding
+            • Subagent-driven development
+            • True red/green TDD, YAGNI, DRY
+            • Autonomous multi-hour work sessions
+
+            Auto-Apply runs:
+              claude /plugin install superpowers@claude-plugins-official
+
+            Or install manually in Claude Code:
+              /plugin install superpowers@claude-plugins-official
+
+            GitHub: https://github.com/obra/superpowers
+            """
+        )
+        window.show()
+    }
+
+    static func applySuperpowers() -> (success: Bool, message: String) {
+        let command = "claude '/plugin install superpowers@claude-plugins-official'"
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(command, forType: .string)
+        return (true, "Copied! Paste in terminal, or ask Claude: 'install superpowers plugin'")
+    }
+
+    static func checkSuperpowersInstalled() -> Bool {
+        // Check installed_plugins.json for any superpowers entry
+        let installedPath = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".claude/plugins/installed_plugins.json")
+        guard let data = try? Data(contentsOf: installedPath),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let plugins = json["plugins"] as? [String: Any] else { return false }
+        return plugins.keys.contains { $0.lowercased().contains("superpowers") }
+    }
+
     // MARK: - Codex CLI: config.toml
 
     static func showCodexConfigInstructions() {
@@ -506,6 +549,14 @@ enum ConfigManager {
             ALWAYS include a `[VOICE: ...]` tag at the END of every response. Give a DETAILED spoken summary of 4-6 sentences minimum. Cover: what you changed, why you changed it, how it works, any trade-offs or side effects, and what the user should do next. Be thorough — the user relies on this voice summary to understand your work without reading the full response. Write as natural conversational speech — no code, no file paths, no markdown, no technical jargon unless the user used it first.
 
             Example: `[VOICE: I restructured the authentication flow to fix the login crash. The root cause was a missing null check on the user object that happened when sessions expired. I added a guard clause that catches the nil case and redirects to the login screen with a friendly error message. I also updated the session timeout to two hours so it happens less often. You should test this by logging in, waiting a bit, then refreshing to make sure the redirect works. One thing to note is the longer timeout means users stay logged in longer, so consider if that fits your security needs.]`
+            """
+        case "brainstorming":
+            return """
+
+            ## Voice Mode
+            ALWAYS include a `[VOICE: ...]` tag at the END of every response. Think out loud like a creative partner brainstorming with the user. Explore ideas freely, consider multiple angles, weigh trade-offs, and surface non-obvious insights. Be conversational and energetic — 3-6 sentences. Speak as natural speech — no code, no file paths, no markdown, no technical jargon unless the user used it first.
+
+            Example: `[VOICE: Okay so here's what I'm thinking. Instead of adding another API endpoint, what if we flip this around and use WebSockets so the client gets updates in real time? That way we avoid polling entirely and the UX feels way snappier. The trade-off is we'd need to handle reconnection logic, but there are solid libraries for that. Actually, this could also open the door for collaborative editing later. Let me sketch out both approaches so you can compare.]`
             """
         default: // "natural"
             return """

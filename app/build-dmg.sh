@@ -49,13 +49,31 @@ chmod +x "$APP_BUNDLE/Contents/Resources/hooks/tts-hook.sh"
 chmod +x "$APP_BUNDLE/Contents/Resources/hooks/codex-tts-hook.sh"
 chmod +x "$APP_BUNDLE/Contents/Resources/scripts/speak.sh"
 
-# Step 4: Bundle uv binary
+# Step 4: Bundle uv binary (detect architecture)
 echo "Bundling uv..."
+ARCH=$(uname -m)
 UV_PATH=$(which uv 2>/dev/null || echo "")
+if [ -n "$UV_PATH" ]; then
+    # Verify local uv matches build architecture
+    UV_ARCH=$(file "$UV_PATH" | grep -o 'arm64\|x86_64' | head -1)
+    if [ "$ARCH" = "arm64" ] && [ "$UV_ARCH" = "arm64" ]; then
+        cp "$UV_PATH" "$APP_BUNDLE/Contents/Resources/uv"
+    elif [ "$ARCH" = "x86_64" ] && [ "$UV_ARCH" = "x86_64" ]; then
+        cp "$UV_PATH" "$APP_BUNDLE/Contents/Resources/uv"
+    else
+        echo "Local uv ($UV_ARCH) doesn't match build arch ($ARCH) — downloading..."
+        UV_PATH=""
+    fi
+fi
 if [ -z "$UV_PATH" ]; then
-    echo "uv not found — downloading for macOS ARM64..."
+    if [ "$ARCH" = "arm64" ]; then
+        UV_URL="https://github.com/astral-sh/uv/releases/latest/download/uv-aarch64-apple-darwin.tar.gz"
+    else
+        UV_URL="https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-apple-darwin.tar.gz"
+    fi
+    echo "Downloading uv for $ARCH..."
     UV_TMP=$(mktemp -d)
-    curl -LsS "https://github.com/astral-sh/uv/releases/latest/download/uv-aarch64-apple-darwin.tar.gz" -o "$UV_TMP/uv.tar.gz"
+    curl -LsS "$UV_URL" -o "$UV_TMP/uv.tar.gz"
     tar xzf "$UV_TMP/uv.tar.gz" -C "$UV_TMP"
     UV_EXTRACTED=$(find "$UV_TMP" -name "uv" -type f | head -1)
     if [ -z "$UV_EXTRACTED" ]; then
@@ -64,17 +82,20 @@ if [ -z "$UV_PATH" ]; then
     fi
     cp "$UV_EXTRACTED" "$APP_BUNDLE/Contents/Resources/uv"
     rm -rf "$UV_TMP"
-else
-    cp "$UV_PATH" "$APP_BUNDLE/Contents/Resources/uv"
 fi
 chmod +x "$APP_BUNDLE/Contents/Resources/uv"
 
-# Step 5: Bundle jq binary
+# Step 5: Bundle jq binary (detect architecture)
 echo "Bundling jq..."
 JQ_PATH=$(which jq 2>/dev/null || echo "")
 if [ -z "$JQ_PATH" ]; then
-    echo "jq not found — downloading for macOS ARM64..."
-    curl -LsS "https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-macos-arm64" -o "$APP_BUNDLE/Contents/Resources/jq"
+    if [ "$ARCH" = "arm64" ]; then
+        JQ_URL="https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-macos-arm64"
+    else
+        JQ_URL="https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-macos-amd64"
+    fi
+    echo "Downloading jq for $ARCH..."
+    curl -LsS "$JQ_URL" -o "$APP_BUNDLE/Contents/Resources/jq"
 else
     cp "$JQ_PATH" "$APP_BUNDLE/Contents/Resources/jq"
 fi
@@ -87,7 +108,7 @@ codesign --force --deep --sign - "$APP_BUNDLE"
 echo ""
 echo "App bundle created: $APP_BUNDLE"
 
-# Step 6: Create DMG
+# Step 7: Create DMG
 echo "Creating DMG..."
 DMG_TMP="$BUILD_DIR/dmg-staging"
 DMG_OUTPUT="$BUILD_DIR/$DMG_NAME.dmg"

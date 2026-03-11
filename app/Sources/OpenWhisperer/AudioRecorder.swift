@@ -40,7 +40,7 @@ class AudioRecorder: ObservableObject {
         set { bufferLock.lock(); _silenceDetectionEnabled = newValue; bufferLock.unlock() }
     }
 
-    private var silenceStart: Date?
+    @Published private(set) var silenceStart: Date?
     private var silenceFired = false
     /// Whether we are currently buffering PCM for STT (false in listening stage).
     /// Read from audio tap thread, written from main — use lock for thread safety (C-2).
@@ -56,7 +56,7 @@ class AudioRecorder: ObservableObject {
     /// Protected by bufferLock — accessed from audio tap thread and main thread.
     private var converter: AVAudioConverter?
     private let targetSampleRate: Double = 16000
-    private let smoothing: Float = 0.15
+    private let smoothing: Float = 0.25
     // swiftlint:disable:next force_unwrapping — PCM Int16 16kHz mono is always supported
     private let targetFormat: AVAudioFormat = {
         guard let fmt = AVAudioFormat(commonFormat: .pcmFormatInt16,
@@ -345,7 +345,7 @@ class AudioRecorder: ObservableObject {
         rawRMS = rms
         bufferLock.unlock()
         // Scale for UI display only (0–1 range for waveform)
-        return min(rms * 80.0, 1.0)
+        return min(rms * 120.0, 1.0)
     }
 
     private func convert(buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {

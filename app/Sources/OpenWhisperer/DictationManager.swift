@@ -42,6 +42,8 @@ class DictationManager: ObservableObject {
     private var recorderSink: AnyCancellable?
     private var uploadWatchdog: DispatchWorkItem?
     private var activeUploadTask: URLSessionDataTask?
+    /// True while a barge-in recording is active — prevents handleTTSStateChange from resetting to keyword mode
+    private var bargedIn = false
     /// Monitors the TTS lock file for barge-in / mic muting
     private var ttsLockMonitor: DispatchSourceFileSystemObject?
     private var ttsLockTimer: Timer?
@@ -136,6 +138,7 @@ class DictationManager: ObservableObject {
         if interactionMode == .handsFree {
             // In hands-free: PTT tap = instant submit if recording
             if recorder.state == .recording {
+                bargedIn = false
                 playClick()
                 handsFreeFlushAndTranscribe()
             }
@@ -234,7 +237,8 @@ class DictationManager: ObservableObject {
         dispatchPrecondition(condition: .onQueue(.main))
         guard interactionMode == .handsFree else { return }
         guard recorder.state == .recording else { return }
-        os_log(.default, log: dictLog, "Silence timeout, flushing for transcription")
+        os_log(.default, log: dictLog, "Silence timeout (threshold=%.0fs), flushing for transcription", recorder.silenceThresholdSeconds)
+        bargedIn = false
         playClick()
         handsFreeFlushAndTranscribe()
     }
@@ -264,6 +268,7 @@ class DictationManager: ObservableObject {
         let watchdog = DispatchWorkItem { [weak self] in
             guard let self, self.recorder.state == .uploading else { return }
             os_log(.default, log: dictLog, "Watchdog: hands-free upload exceeded 35s")
+            self.bargedIn = false
             self.activeUploadTask?.cancel()
             self.activeUploadTask = nil
             self.isTyping = false
@@ -318,6 +323,7 @@ class DictationManager: ObservableObject {
         // Only barge-in when recorder is in a state that can transition to recording (L-1)
         guard recorder.state == .listening || recorder.state == .idle else { return }
         os_log(.default, log: dictLog, "Barge-in: 'hold on' detected, killing TTS")
+        bargedIn = true
         // Stop keyword detector before recording — matches handleInitiateKeyword pattern
         keywordDetector.stop()
         killTTS()
@@ -366,7 +372,11 @@ class DictationManager: ObservableObject {
                 keywordDetector.start()
             }
         } else {
-            // TTS finished — resume listening for "initiate"
+            // TTS finished — resume listening for "initiate" (unless barge-in is active)
+            if bargedIn {
+                os_log(.default, log: dictLog, "TTS ended after barge-in — recording in progress, skipping reset")
+                return
+            }
             os_log(.default, log: dictLog, "TTS ended — resuming keyword listening")
             if recorder.state != .uploading {
                 recorder.resumeListening()

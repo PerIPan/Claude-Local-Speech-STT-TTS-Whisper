@@ -1,6 +1,11 @@
 import Foundation
 import SwiftUI
 
+/// Borderless window that accepts keyboard input (enables Cmd+C for text selection).
+private class KeyableWindow: NSWindow {
+    override var canBecomeKey: Bool { true }
+}
+
 class TranscriptionOverlay: NSObject, NSWindowDelegate, ObservableObject {
     static let shared = TranscriptionOverlay()
 
@@ -81,7 +86,7 @@ class TranscriptionOverlay: NSObject, NSWindowDelegate, ObservableObject {
         // and does not clip the SwiftUI render layer, which can suppress CA commits.
         hostingView.sizingOptions = [.minSize, .intrinsicContentSize, .preferredContentSize]
 
-        let w = NSWindow(
+        let w = KeyableWindow(
             contentRect: NSRect(x: 0, y: 0, width: 280, height: 130),
             styleMask: [.borderless, .resizable],
             backing: .buffered,
@@ -250,6 +255,14 @@ struct OverlayView: View {
             WaveformBar(recorder: recorder, isTTSPlaying: overlay.isTTSPlaying, pttKeyLabel: overlay.pttKeyLabel, interactionMode: overlay.interactionMode)
                 .frame(height: 36)
                 .padding(.horizontal, 8)
+
+            // Silence progress bar — always visible in hands-free mode
+            if overlay.interactionMode == .handsFree {
+                SilenceProgressBar(recorder: recorder)
+                    .frame(height: 1.5)
+                    .padding(.horizontal, 8)
+                    .padding(.top, 3)
+            }
 
             Divider().padding(.horizontal, 8).padding(.vertical, 4)
 
@@ -428,5 +441,37 @@ struct WaveformBar: View {
         case .listening: return "Listening..."
         case .idle: return "Standby"
         }
+    }
+}
+
+// MARK: - Silence Progress Bar
+
+struct SilenceProgressBar: View {
+    @ObservedObject var recorder: AudioRecorder
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 0.05)) { timeline in
+            GeometryReader { geo in
+                let progress = silenceProgress(at: timeline.date)
+                ZStack(alignment: .leading) {
+                    // Track (always visible)
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Color.primary.opacity(0.25))
+                    // Fill
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Color.green)
+                        .frame(width: max(0, geo.size.width * progress))
+                }
+            }
+        }
+    }
+
+    private func silenceProgress(at now: Date) -> CGFloat {
+        // Only show fill during active recording (not listening/idle)
+        guard recorder.state == .recording,
+              let start = recorder.silenceStart,
+              recorder.silenceThresholdSeconds > 0 else { return 0 }
+        let elapsed = now.timeIntervalSince(start)
+        return CGFloat(min(max(elapsed / recorder.silenceThresholdSeconds, 0), 1))
     }
 }

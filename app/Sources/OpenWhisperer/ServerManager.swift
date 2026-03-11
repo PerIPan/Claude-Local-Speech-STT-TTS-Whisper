@@ -22,7 +22,7 @@ class ServerManager: ObservableObject {
     private var startTime: Date?
     private var stopping = false
 
-    private static let startupTimeout: TimeInterval = 60
+    private static let startupTimeout: TimeInterval = 300  // 5 min — first run downloads ~1.2GB of models
     private static let maxLogSize: UInt64 = 10 * 1024 * 1024  // 10MB
 
     var isRunning: Bool { status == .running }

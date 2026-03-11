@@ -12,6 +12,7 @@ import io
 import tempfile
 import threading
 import time
+from contextlib import asynccontextmanager
 from concurrent.futures import ThreadPoolExecutor
 
 import soundfile as sf
@@ -272,7 +273,7 @@ async def transcribe(
         result = await loop.run_in_executor(
             _transcribe_executor,
             lambda p=tmp_path, l=language: _serialize_transcribe(
-                p, None if (not l or l == "auto") else l or _get_default_language()
+                p, None if (not l or l == "auto") else l
             ),
         )
         text = result.get("text", "")
@@ -398,16 +399,17 @@ async def list_models():
 
 
 # ---------------------------------------------------------------------------
-# Fix 2: Warm up TTS model on startup so the first real request is fast.
+# Warm up TTS model on startup so the first real request is fast.
 # Loads model weights, runs a short inference to populate MLX JIT cache.
+# Uses lifespan context manager (replaces deprecated @app.on_event).
 # ---------------------------------------------------------------------------
-@app.on_event("startup")
-async def _warmup_tts():
+@asynccontextmanager
+async def _lifespan(application):
+    # Startup: warm up TTS
     def _do_warmup():
         try:
             logger.info("Warming up TTS model...")
             model = model_provider.load_model(TTS_MODEL)
-            # Run a minimal inference to JIT-compile the Metal kernels
             for _ in model.generate("hello", voice="af_heart", lang_code="a"):
                 pass
             logger.info("TTS warm-up complete")
@@ -415,6 +417,10 @@ async def _warmup_tts():
             logger.warning("TTS warm-up failed (non-fatal)", exc_info=True)
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(_tts_executor, _do_warmup)
+    yield
+    # Shutdown: nothing to clean up
+
+app.router.lifespan_context = _lifespan
 
 
 # ---------------------------------------------------------------------------

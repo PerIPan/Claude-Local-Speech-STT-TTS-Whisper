@@ -32,13 +32,23 @@ class SetupManager: ObservableObject {
             guard let self else { return }
             updateState(.inProgress("Creating Python environment..."), progress: 0.1)
 
-            // Step 1: Create venv with bundled uv
-            guard runCommand(
-                Paths.uvBinary.path,
-                args: ["venv", Paths.venv.path, "--python", "3.13", "--clear"],
-                step: "Creating Python environment..."
-            ) else {
-                updateState(.failed("Failed to create Python venv"), progress: 0)
+            // Step 1: Create venv with bundled uv — try Python 3.13, fall back to 3.12/3.11
+            var venvCreated = false
+            for pyVersion in ["3.13", "3.12", "3.11"] {
+                if runCommand(
+                    Paths.uvBinary.path,
+                    args: ["venv", Paths.venv.path, "--python", pyVersion, "--clear"],
+                    step: "Creating Python \(pyVersion) environment...",
+                    timeout: 120
+                ) {
+                    venvCreated = true
+                    NSLog("Created venv with Python \(pyVersion)")
+                    break
+                }
+                NSLog("Python \(pyVersion) not available, trying next...")
+            }
+            guard venvCreated else {
+                updateState(.failed("Failed to create Python venv — no Python 3.11+ found"), progress: 0)
                 DispatchQueue.main.async {
                     self.isSetupRunning = false
                     completion(false)
@@ -48,7 +58,7 @@ class SetupManager: ObservableObject {
 
             // Step 2: Install mlx-audio
             updateState(.inProgress("Installing MLX Audio (TTS)..."), progress: 0.2)
-            guard uvPipInstall("mlx-audio") else {
+            guard uvPipInstall("mlx-audio", timeout: 600) else {
                 updateState(.failed("Failed to install mlx-audio"), progress: 0)
                 DispatchQueue.main.async {
                     self.isSetupRunning = false
@@ -59,7 +69,7 @@ class SetupManager: ObservableObject {
 
             // Step 3: Install mlx-whisper
             updateState(.inProgress("Installing MLX Whisper (STT)..."), progress: 0.4)
-            guard uvPipInstall("mlx-whisper") else {
+            guard uvPipInstall("mlx-whisper", timeout: 600) else {
                 updateState(.failed("Failed to install mlx-whisper"), progress: 0)
                 DispatchQueue.main.async {
                     self.isSetupRunning = false
@@ -68,10 +78,22 @@ class SetupManager: ObservableObject {
                 return
             }
 
-            // Step 4: Install spaCy model (required by Kokoro TTS)
+            // Step 4: Install spaCy + model (required by Kokoro TTS)
             updateState(.inProgress("Installing language model..."), progress: 0.6)
-            guard uvPipInstall(
-                "en_core_web_sm@https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl"
+            guard uvPipInstall("spacy", timeout: 300) else {
+                updateState(.failed("Failed to install spaCy"), progress: 0)
+                DispatchQueue.main.async {
+                    self.isSetupRunning = false
+                    completion(false)
+                }
+                return
+            }
+            // Install matching en_core_web_sm via spacy download (ensures version compatibility)
+            guard runCommand(
+                Paths.python.path,
+                args: ["-m", "spacy", "download", "en_core_web_sm"],
+                step: "Downloading spaCy language model...",
+                timeout: 120
             ) else {
                 updateState(.failed("Failed to install spaCy model"), progress: 0)
                 DispatchQueue.main.async {
@@ -81,15 +103,36 @@ class SetupManager: ObservableObject {
                 return
             }
 
-            // Step 5: Install setuptools
+            // Step 5: Install setuptools (required by Kokoro TTS for pkg_resources)
             updateState(.inProgress("Installing dependencies..."), progress: 0.7)
-            if !uvPipInstall("setuptools<81") {
-                NSLog("Warning: setuptools install failed — TTS server may not work")
+            guard uvPipInstall("setuptools<81", timeout: 120) else {
+                updateState(.failed("Failed to install setuptools — TTS requires it"), progress: 0)
+                DispatchQueue.main.async {
+                    self.isSetupRunning = false
+                    completion(false)
+                }
+                return
+            }
+
+            // Step 6: Smoke test — verify critical imports work
+            updateState(.inProgress("Verifying installation..."), progress: 0.85)
+            guard runCommand(
+                Paths.python.path,
+                args: ["-c", "import mlx_whisper; import mlx_audio; import spacy; print('OK')"],
+                step: "Import smoke test...",
+                timeout: 30
+            ) else {
+                updateState(.failed("Installation verification failed — try Setup > Reset"), progress: 0)
+                DispatchQueue.main.async {
+                    self.isSetupRunning = false
+                    completion(false)
+                }
+                return
             }
 
             updateState(.inProgress("Finishing up..."), progress: 0.9)
 
-            // Mark setup complete
+            // Mark setup complete (only after all steps + smoke test pass)
             try? "done".write(to: Paths.setupComplete, atomically: true, encoding: .utf8)
 
             updateState(.complete, progress: 1.0)
@@ -109,15 +152,16 @@ class SetupManager: ObservableObject {
 
     // MARK: - Private
 
-    private func uvPipInstall(_ package: String) -> Bool {
+    private func uvPipInstall(_ package: String, timeout: TimeInterval = 300) -> Bool {
         runCommand(
             Paths.uvBinary.path,
             args: ["pip", "install", "--python", Paths.python.path, package],
-            step: "Installing \(package)..."
+            step: "Installing \(package)...",
+            timeout: timeout
         )
     }
 
-    private func runCommand(_ executable: String, args: [String], step: String) -> Bool {
+    private func runCommand(_ executable: String, args: [String], step: String, timeout: TimeInterval = 300) -> Bool {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = args
@@ -136,7 +180,21 @@ class SetupManager: ObservableObject {
 
         do {
             try process.run()
-            process.waitUntilExit()
+
+            // Wait with timeout to prevent indefinite hangs
+            let deadline = Date().addingTimeInterval(timeout)
+            while process.isRunning && Date() < deadline {
+                Thread.sleep(forTimeInterval: 0.5)
+            }
+            if process.isRunning {
+                NSLog("Setup step timed out after \(Int(timeout))s: \(step)")
+                process.terminate()
+                Thread.sleep(forTimeInterval: 1)
+                if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+                try? logFile.close()
+                return false
+            }
+
             try? logFile.close()
             let success = process.terminationStatus == 0
             if !success {

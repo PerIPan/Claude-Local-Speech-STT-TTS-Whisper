@@ -18,7 +18,7 @@ Everything runs on your Mac — no cloud APIs, no data leaves your machine.
 
 ## Install
 
-[**Download OpenWhisperer-1.3.1.dmg**](https://github.com/PerIPan/OpenWhisperer/releases/download/v1.3.1/OpenWhisperer-1.3.1.dmg) — drag to Applications and launch.
+[**Download OpenWhisperer-1.3.2.dmg**](https://github.com/PerIPan/OpenWhisperer/releases/download/v1.3.2/OpenWhisperer-1.3.2.dmg) — drag to Applications and launch.
 
 On first launch, the app:
 - Creates a Python environment with all dependencies
@@ -48,18 +48,18 @@ After setup, use the menubar buttons for configuration instructions.
 
 Three modes for speech-to-text, all using your local Whisper server. Transcribed text is typed directly into whatever app you have focused.
 
-### Press-to-Talk (default)
+### Hold-to-Talk (default)
+
+1. Hold **Ctrl** — recording starts immediately
+2. Speak your message
+3. Release **Ctrl** — audio is transcribed and inserted
+
+### Press-to-Talk
 
 1. Press **Ctrl** — recording starts (red indicator)
 2. Speak your message
 3. Press **Ctrl** again — audio is sent to Whisper for transcription
 4. Text is inserted via Accessibility (native apps) or CGEvent Unicode typing (all others) — clipboard is never touched
-
-### Hold-to-Talk
-
-1. Hold **Ctrl** — recording starts immediately
-2. Speak your message
-3. Release **Ctrl** — audio is transcribed and inserted
 
 ### Hands-Free
 
@@ -70,6 +70,8 @@ No button press needed. Uses on-device keyword detection (Apple Speech framework
 3. **3 seconds of silence** — audio is auto-transcribed and inserted
 4. returns to listening for "initiate" again
 5. say **"hold on"** during TTS playback — interrupts audio and starts recording
+
+> **Tip:** "Hold on" barge-in works best with headphones — without them the mic may pick up the TTS audio instead of your voice.
 
 <p align="center">
   <img src="screenshot2.png" width="480" alt="Open Whisperer transcription overlay">
@@ -237,7 +239,7 @@ chmod +x build-dmg.sh
 ./build-dmg.sh
 ```
 
-Requires Xcode Command Line Tools. Produces `Open Whisperer.app` and `OpenWhisperer-1.3.1.dmg` in `app/.build/`.
+Requires Xcode Command Line Tools. Produces `Open Whisperer.app` and `OpenWhisperer-1.3.2.dmg` in `app/.build/`.
 
 ## File Structure
 
