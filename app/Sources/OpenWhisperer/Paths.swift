@@ -71,6 +71,11 @@ enum Paths {
     /// TTS volume file (tts-hook.sh reads volume level from this)
     static let ttsVolume = appSupport.appendingPathComponent("tts_volume")
 
+    /// Card expanded states (persisted so user's collapse/expand survives restarts)
+    static let setupCardExpanded = appSupport.appendingPathComponent("setup_expanded")
+    static let voiceSettingsCardExpanded = appSupport.appendingPathComponent("voice_settings_expanded")
+    static let serverCardExpanded = appSupport.appendingPathComponent("server_expanded")
+
     /// Selected AI platform (claudeCode, codexCLI)
     static let selectedPlatform = appSupport.appendingPathComponent("selected_platform")
 

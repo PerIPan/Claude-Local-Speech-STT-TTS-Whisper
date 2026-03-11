@@ -10,8 +10,8 @@ private enum OWColor {
     static let muted = Color.secondary
     /// Thin separator line
     static let divider = Color.primary.opacity(0.08)
-    /// Accent blue used for interactive states
-    static let accent = Color.accentColor
+    /// Accent — dark gray for interactive states (pickers, checkboxes)
+    static let accent = Color.gray
     /// Inline tag pill background
     static let pillBackground = Color.primary.opacity(0.06)
 }
@@ -63,9 +63,9 @@ struct MenuBarView: View {
     @State private var applyMessage = ""
     @State private var serverReachable = false
     @State private var launchAtLogin = false
-    @State private var voiceSettingsExpanded = false
-    @State private var setupExpanded = true
-    @State private var serverExpanded = false
+    @State private var voiceSettingsExpanded = FileManager.default.fileExists(atPath: Paths.voiceSettingsCardExpanded.path)
+    @State private var setupExpanded = !FileManager.default.fileExists(atPath: Paths.setupCardExpanded.path)
+    @State private var serverExpanded = FileManager.default.fileExists(atPath: Paths.serverCardExpanded.path)
     // logsExpanded removed — merged into serverExpanded
     @ObservedObject private var overlay = TranscriptionOverlay.shared
 
@@ -175,6 +175,8 @@ struct MenuBarView: View {
         .padding(14)
         .font(OWFont.body())
         .frame(width: 310)
+        .tint(Color.gray)
+        .accentColor(Color.gray)
         .background(.ultraThinMaterial)
         .onAppear {
             selectedPlatform = Platform.load()
@@ -547,6 +549,13 @@ struct MenuBarView: View {
 
             }
         }
+        .onChange(of: voiceSettingsExpanded) { _, newValue in
+            if newValue {
+                try? "open".write(to: Paths.voiceSettingsCardExpanded, atomically: true, encoding: .utf8)
+            } else {
+                try? FileManager.default.removeItem(at: Paths.voiceSettingsCardExpanded)
+            }
+        }
     }
 
     // MARK: - Automation Card
@@ -749,6 +758,13 @@ struct MenuBarView: View {
                 }
             }
         }
+        .onChange(of: setupExpanded) { _, newValue in
+            if newValue {
+                try? FileManager.default.removeItem(at: Paths.setupCardExpanded)
+            } else {
+                try? "closed".write(to: Paths.setupCardExpanded, atomically: true, encoding: .utf8)
+            }
+        }
     }
 
     // MARK: - Server Card
@@ -818,6 +834,13 @@ struct MenuBarView: View {
                     }
                     .buttonStyle(OWRowButtonStyle())
                 }
+            }
+        }
+        .onChange(of: serverExpanded) { _, newValue in
+            if newValue {
+                try? "open".write(to: Paths.serverCardExpanded, atomically: true, encoding: .utf8)
+            } else {
+                try? FileManager.default.removeItem(at: Paths.serverCardExpanded)
             }
         }
     }
