@@ -1,24 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="512" height="512">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
   <defs>
-    <linearGradient id="greenCyan3b" x1="0" y1="0" x2="1" y2="0">
+    <linearGradient id="greenCyan" x1="0" y1="0" x2="1" y2="0">
       <stop offset="0%" stop-color="#00E5A0"/>
       <stop offset="100%" stop-color="#00B4D8"/>
     </linearGradient>
-    <!-- Tight dark outline around cursor — minimal glow, strong edge -->
-    <filter id="darkEdge" x="-0.2" y="-0.2" width="1.4" height="1.4">
-      <feMorphology in="SourceAlpha" operator="dilate" radius="6" result="expanded"/>
-      <feFlood flood-color="#000000" flood-opacity="0.85" result="color"/>
-      <feComposite in="color" in2="expanded" operator="in" result="outline"/>
-      <feGaussianBlur in="outline" stdDeviation="4" result="softEdge"/>
-      <feMerge>
-        <feMergeNode in="softEdge"/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
-    </filter>
-    <!-- Tight dark outline for the seam line -->
-    <filter id="lineEdge" x="-3" y="-0.05" width="7" height="1.1">
-      <feMorphology in="SourceAlpha" operator="dilate" radius="8" result="expanded"/>
-      <feFlood flood-color="#000000" flood-opacity="0.8" result="color"/>
+    <!-- Thick black outline around cursor -->
+    <filter id="darkEdge" x="-0.3" y="-0.3" width="1.6" height="1.6">
+      <feMorphology in="SourceAlpha" operator="dilate" radius="10" result="expanded"/>
+      <feFlood flood-color="#000000" flood-opacity="0.95" result="color"/>
       <feComposite in="color" in2="expanded" operator="in" result="outline"/>
       <feGaussianBlur in="outline" stdDeviation="3" result="softEdge"/>
       <feMerge>
@@ -26,30 +15,61 @@
         <feMergeNode in="SourceGraphic"/>
       </feMerge>
     </filter>
+    <!-- Thick black outline for the seam line -->
+    <filter id="lineEdge" x="-4" y="-0.05" width="9" height="1.1">
+      <feMorphology in="SourceAlpha" operator="dilate" radius="12" result="expanded"/>
+      <feFlood flood-color="#000000" flood-opacity="0.9" result="color"/>
+      <feComposite in="color" in2="expanded" operator="in" result="outline"/>
+      <feGaussianBlur in="outline" stdDeviation="2" result="softEdge"/>
+      <feMerge>
+        <feMergeNode in="softEdge"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <!-- Thick black outline for waveform bars -->
+    <filter id="barEdge" x="-0.4" y="-0.1" width="1.8" height="1.2">
+      <feMorphology in="SourceAlpha" operator="dilate" radius="6" result="expanded"/>
+      <feFlood flood-color="#000000" flood-opacity="0.9" result="color"/>
+      <feComposite in="color" in2="expanded" operator="in" result="outline"/>
+      <feGaussianBlur in="outline" stdDeviation="2" result="softEdge"/>
+      <feMerge>
+        <feMergeNode in="softEdge"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <!-- VS Code style rounded rect clip -->
+    <clipPath id="iconClip">
+      <rect width="1024" height="1024" rx="230" ry="230"/>
+    </clipPath>
   </defs>
 
-  <!-- Left: organic voice waveform (green/cyan) -->
-  <g transform="translate(70, 512)">
-    <rect x="0" y="-60" width="28" height="120" rx="14" fill="url(#greenCyan3b)" opacity="0.7"/>
-    <rect x="48" y="-110" width="28" height="220" rx="14" fill="url(#greenCyan3b)" opacity="0.85"/>
-    <rect x="96" y="-170" width="28" height="340" rx="14" fill="url(#greenCyan3b)"/>
-    <rect x="144" y="-130" width="28" height="260" rx="14" fill="url(#greenCyan3b)" opacity="0.9"/>
-    <rect x="192" y="-200" width="28" height="400" rx="14" fill="url(#greenCyan3b)"/>
-    <rect x="240" y="-80" width="28" height="160" rx="14" fill="url(#greenCyan3b)" opacity="0.75"/>
-    <rect x="288" y="-150" width="28" height="300" rx="14" fill="url(#greenCyan3b)" opacity="0.95"/>
-    <rect x="336" y="-90" width="28" height="180" rx="14" fill="url(#greenCyan3b)" opacity="0.7"/>
-    <rect x="384" y="-40" width="28" height="80" rx="14" fill="url(#greenCyan3b)" opacity="0.5"/>
-  </g>
+  <!-- Dark rounded background -->
+  <!-- transparent background -->
 
-  <!-- Center seam with dark edge -->
-  <g filter="url(#lineEdge)">
-    <rect x="560" y="160" width="4" height="704" fill="white" opacity="0.6"/>
-  </g>
+  <g>
+    <!-- Left: organic voice waveform with black edge -->
+    <g transform="translate(70, 512)" filter="url(#barEdge)">
+      <rect x="0" y="-60" width="28" height="120" rx="14" fill="url(#greenCyan)" opacity="0.7"/>
+      <rect x="48" y="-110" width="28" height="220" rx="14" fill="url(#greenCyan)" opacity="0.85"/>
+      <rect x="96" y="-170" width="28" height="340" rx="14" fill="url(#greenCyan)"/>
+      <rect x="144" y="-130" width="28" height="260" rx="14" fill="url(#greenCyan)" opacity="0.9"/>
+      <rect x="192" y="-200" width="28" height="400" rx="14" fill="url(#greenCyan)"/>
+      <rect x="240" y="-80" width="28" height="160" rx="14" fill="url(#greenCyan)" opacity="0.75"/>
+      <rect x="288" y="-150" width="28" height="300" rx="14" fill="url(#greenCyan)" opacity="0.95"/>
+      <rect x="336" y="-90" width="28" height="180" rx="14" fill="url(#greenCyan)" opacity="0.7"/>
+      <rect x="384" y="-40" width="28" height="80" rx="14" fill="url(#greenCyan)" opacity="0.5"/>
+    </g>
 
-  <!-- Right: terminal cursor >_ with dark edge -->
-  <g transform="translate(660, 440)" filter="url(#darkEdge)">
-    <text x="120" y="130" font-family="SF Mono, Menlo, Consolas, monospace" font-size="270" font-weight="700" fill="white" text-anchor="middle">
-      &gt;_
-    </text>
+    <!-- Center seam with thick black edge -->
+    <g filter="url(#lineEdge)">
+      <rect x="560" y="160" width="5" height="704" fill="white"/>
+    </g>
+
+    <!-- Right: terminal cursor >_ with thick black edge -->
+    <g transform="translate(660, 440)" filter="url(#darkEdge)">
+      <text x="120" y="130" font-family="SF Mono, Menlo, Consolas, monospace" font-size="270" font-weight="700" fill="white" text-anchor="middle">
+        &gt;_
+      </text>
+    </g>
   </g>
 </svg>
