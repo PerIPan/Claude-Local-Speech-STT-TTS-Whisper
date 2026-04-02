@@ -10,13 +10,13 @@
     <!-- Diamond: 4 faces, rotated 45°, staggered opacity -->
     <g transform="translate(512,512) rotate(45) translate(-352,-352)">
       <!-- Face 1: top-left (first to fold in, first to start fading) -->
-      <rect x="0" y="0" width="345" height="345" rx="16" fill="#C4A87D" opacity="0.6"/>
+      <rect x="0" y="0" width="345" height="345" rx="40" fill="#C4A87D" opacity="0.6"/>
       <!-- Face 2: top-right -->
-      <rect x="359" y="0" width="345" height="345" rx="16" fill="#C4A87D" opacity="0.75"/>
+      <rect x="359" y="0" width="345" height="345" rx="40" fill="#C4A87D" opacity="0.75"/>
       <!-- Face 3: bottom-right -->
-      <rect x="359" y="359" width="345" height="345" rx="16" fill="#C4A87D" opacity="0.88"/>
+      <rect x="359" y="359" width="345" height="345" rx="40" fill="#C4A87D" opacity="0.88"/>
       <!-- Face 4: bottom-left (last in, fully visible) -->
-      <rect x="0" y="359" width="345" height="345" rx="16" fill="#C4A87D" opacity="1"/>
+      <rect x="0" y="359" width="345" height="345" rx="40" fill="#C4A87D" opacity="1"/>
     </g>
   </g>
 </svg>
