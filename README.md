@@ -16,7 +16,7 @@ The command to bypass Gatekeeper for the DMG:
 xattr -cr /Applications/Open\ Whisperer.app
 
 If you want to do it on the DMG itself before opening:
-xattr -d com.apple.quarantine ~/Downloads/OpenWhisperer-1.3.2.dmg
+xattr -d com.apple.quarantine ~/Downloads/OpenWhisperer-1.3.3.dmg
 
 
 ## What It Does
@@ -27,7 +27,7 @@ Everything runs on your Mac — no cloud APIs, no data leaves your machine.
 
 ## Install
 
-[**Download OpenWhisperer-1.3.2.dmg**](https://github.com/PerIPan/OpenWhisperer/releases/download/v1.3.2/OpenWhisperer-1.3.2.dmg) — drag to Applications and launch.
+[**Download OpenWhisperer-1.3.3.dmg**](https://github.com/PerIPan/OpenWhisperer/releases/download/v1.3.3/OpenWhisperer-1.3.3.dmg) — drag to Applications and launch.
 
 On first launch, the app:
 - Creates a Python environment with all dependencies
@@ -248,7 +248,7 @@ chmod +x build-dmg.sh
 ./build-dmg.sh
 ```
 
-Requires Xcode Command Line Tools. Produces `Open Whisperer.app` and `OpenWhisperer-1.3.2.dmg` in `app/.build/`.
+Requires Xcode Command Line Tools. Produces `Open Whisperer.app` and `OpenWhisperer-1.3.3.dmg` in `app/.build/`.
 
 ## File Structure
 
@@ -277,7 +277,13 @@ Contributions are welcome! Feel free to open issues or submit pull requests. Whe
 ## Credits
 
 - [MLX Audio](https://github.com/Blaizzy/mlx-audio) — TTS and STT on Apple Silicon
+- [MLX Whisper](https://github.com/ml-explore/mlx-examples) — Speech-to-text (MLX port of OpenAI Whisper)
 - [Kokoro](https://huggingface.co/prince-canuma/Kokoro-82M) — TTS model
+- [FastAPI](https://fastapi.tiangolo.com/) — Server framework
+- [Uvicorn](https://www.uvicorn.org/) — ASGI server
+- [spaCy](https://spacy.io/) — NLP (required by Kokoro)
+- [uv](https://docs.astral.sh/uv/) — Python package manager
+- [jq](https://jqlang.github.io/jq/) — JSON processor
 - [Claude Code](https://claude.ai/claude-code) — Anthropic's CLI
 - [Codex CLI](https://github.com/openai/codex) — OpenAI's CLI agent
 

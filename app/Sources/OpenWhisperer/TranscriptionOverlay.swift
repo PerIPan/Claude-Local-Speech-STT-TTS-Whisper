@@ -273,8 +273,13 @@ struct OverlayView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 4) {
-                        ForEach(overlay.lines.reversed()) { line in
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(overlay.lines.reversed().enumerated()), id: \.element.id) { index, line in
+                            if index > 0 {
+                                Divider()
+                                    .padding(.horizontal, 4)
+                                    .padding(.vertical, 4)
+                            }
                             Text(line.text)
                                 .font(.custom("Outfit", size: 11))
                                 .textSelection(.enabled)

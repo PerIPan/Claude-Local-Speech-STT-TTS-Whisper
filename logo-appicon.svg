@@ -1,71 +1,22 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
   <defs>
-    <linearGradient id="greenCyan" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#00E5A0"/>
-      <stop offset="100%" stop-color="#C0C0C0"/>
-    </linearGradient>
-    <!-- Rounded black outline around cursor -->
-    <filter id="darkEdge" x="-0.3" y="-0.3" width="1.6" height="1.6">
-      <feMorphology in="SourceAlpha" operator="dilate" radius="7" result="expanded"/>
-      <feGaussianBlur in="expanded" stdDeviation="3" result="rounded"/>
-      <feComponentTransfer in="rounded" result="sharp">
-        <feFuncA type="discrete" tableValues="0 1"/>
-      </feComponentTransfer>
-      <feFlood flood-color="#000000" flood-opacity="0.95" result="color"/>
-      <feComposite in="color" in2="sharp" operator="in" result="outline"/>
-      <feMerge>
-        <feMergeNode in="outline"/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
-    </filter>
-    <!-- Black outline for the seam line -->
-    <filter id="lineEdge" x="-4" y="-0.05" width="9" height="1.1">
-      <feMorphology in="SourceAlpha" operator="dilate" radius="5" result="expanded"/>
-      <feFlood flood-color="#000000" flood-opacity="0.9" result="color"/>
-      <feComposite in="color" in2="expanded" operator="in" result="outline"/>
-      <feMerge>
-        <feMergeNode in="outline"/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
-    </filter>
-    <!-- Black outline for waveform bars -->
-    <filter id="barEdge" x="-0.4" y="-0.1" width="1.8" height="1.2">
-      <feMorphology in="SourceAlpha" operator="dilate" radius="4" result="expanded"/>
-      <feFlood flood-color="#000000" flood-opacity="0.9" result="color"/>
-      <feComposite in="color" in2="expanded" operator="in" result="outline"/>
-      <feMerge>
-        <feMergeNode in="outline"/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
-    </filter>
-    <!-- VS Code style rounded rect clip -->
     <clipPath id="iconClip">
       <rect width="1024" height="1024" rx="230" ry="230"/>
     </clipPath>
   </defs>
-
-  <!-- White background for macOS dock mask -->
+  <!-- Cream background for macOS dock squircle -->
   <rect width="1024" height="1024" rx="230" ry="230" fill="#F5F5F4"/>
   <g clip-path="url(#iconClip)">
-    <!-- Left: organic voice waveform with black edge -->
-    <g transform="translate(80, 512)" filter="url(#barEdge)">
-      <rect x="0" y="-80" width="40" height="160" rx="20" fill="#C0C0C0" opacity="0.8"/>
-      <rect x="80" y="-160" width="40" height="320" rx="20" fill="#C0C0C0"/>
-      <rect x="160" y="-200" width="40" height="400" rx="20" fill="#C0C0C0"/>
-      <rect x="240" y="-140" width="40" height="280" rx="20" fill="#C0C0C0" opacity="0.9"/>
-      <rect x="320" y="-70" width="40" height="140" rx="20" fill="#C0C0C0" opacity="0.8"/>
-    </g>
-
-    <!-- Center seam with thick black edge -->
-    <g filter="url(#lineEdge)">
-      <rect x="560" y="160" width="5" height="704" rx="2.5" fill="#C0C0C0"/>
-    </g>
-
-    <!-- Right: terminal cursor >_ with thick black edge -->
-    <g transform="translate(700, 440)" filter="url(#darkEdge)">
-      <text x="120" y="130" font-family="SF Mono, Menlo, Consolas, monospace" font-size="270" font-weight="700" fill="#C0C0C0" text-anchor="middle">
-        &gt;_
-      </text>
+    <!-- Diamond: 4 faces, rotated 45°, staggered opacity -->
+    <g transform="translate(512,512) rotate(45) translate(-352,-352)">
+      <!-- Face 1: top-left (first to fold in, first to start fading) -->
+      <rect x="0" y="0" width="345" height="345" rx="16" fill="#C4A87D" opacity="0.6"/>
+      <!-- Face 2: top-right -->
+      <rect x="359" y="0" width="345" height="345" rx="16" fill="#C4A87D" opacity="0.75"/>
+      <!-- Face 3: bottom-right -->
+      <rect x="359" y="359" width="345" height="345" rx="16" fill="#C4A87D" opacity="0.88"/>
+      <!-- Face 4: bottom-left (last in, fully visible) -->
+      <rect x="0" y="359" width="345" height="345" rx="16" fill="#C4A87D" opacity="1"/>
     </g>
   </g>
 </svg>
